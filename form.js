@@ -1127,7 +1127,7 @@ function corrigirDigitoCompostoTd1(linha1, linha2) {
   if (validarDigitoMrz(valor, linha2[29])) return linha2;
 
   if (
-    !validarDigitoMrz(linha1.slice(5, 14), linha1[14]) ||
+    !validarDocumentoTd1(linha1) ||
     !validarDigitoMrz(linha2.slice(0, 6), linha2[6]) ||
     !validarDigitoMrz(linha2.slice(8, 14), linha2[14])
   ) {
@@ -1257,14 +1257,8 @@ function validarMrzTd3(linha2, log) {
 }
 
 function validarMrzTd1(linha1, linha2, log) {
-  const numeroDocumento = linha1.slice(5, 14);
-  const digitoDocumento = linha1[14];
-  const opcional1 = linha1.slice(15, 30);
-  const documentoValido =
-    validarDigitoMrz(numeroDocumento, digitoDocumento) ||
-    validarDigitoMrz(numeroDocumento + opcional1, digitoDocumento);
   const checks = {
-    documento: documentoValido,
+    documento: validarDocumentoTd1(linha1),
     nascimento: validarDigitoMrz(linha2.slice(0, 6), linha2[6]),
     validade: validarDigitoMrz(linha2.slice(8, 14), linha2[14]),
     composto: validarDigitoMrz(linha1.slice(5, 30) + linha2.slice(0, 7) + linha2.slice(8, 15) + linha2.slice(18, 29), linha2[29])
@@ -1276,6 +1270,32 @@ function validarMrzTd1(linha1, linha2, log) {
     checks.nascimento &&
     checks.validade &&
     checks.composto
+  );
+}
+
+function validarDocumentoTd1(linha1) {
+  const numeroDocumento = linha1.slice(5, 14);
+  const digitoDocumento = linha1[14];
+  const opcional1 = linha1.slice(15, 30);
+
+  if (
+    validarDigitoMrz(numeroDocumento, digitoDocumento) ||
+    validarDigitoMrz(numeroDocumento + opcional1, digitoDocumento)
+  ) {
+    return true;
+  }
+
+  if (digitoDocumento !== "<") return false;
+
+  const fimExtensao = opcional1.indexOf("<");
+  if (fimExtensao <= 0) return false;
+
+  const extensao = opcional1.slice(0, fimExtensao - 1);
+  const digitoExtensao = opcional1.charAt(fimExtensao - 1);
+
+  return (
+    validarDigitoMrz(`${numeroDocumento}<${extensao}`, digitoExtensao) ||
+    validarDigitoMrz(`${numeroDocumento}${extensao}`, digitoExtensao)
   );
 }
 
