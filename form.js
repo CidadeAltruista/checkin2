@@ -271,18 +271,97 @@ async function iniciarCameraDocumento() {
   }
 
   try {
-    mrzStream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: "environment"
-      },
-      audio: false
-    });
+    mrzStream = await abrirCameraDocumento();
     video.srcObject = mrzStream;
     camera.hidden = false;
+    await prepararCameraDocumento(mrzStream);
     atualizarEstadoMrz("");
   } catch (error) {
     console.warn("Erro ao abrir camera:", error);
     mostrarErroMrz();
+  }
+}
+
+async function abrirCameraDocumento() {
+  const baseConstraints = {
+    width: { ideal: 1920 },
+    height: { ideal: 1080 },
+    facingMode: { ideal: "environment" }
+  };
+
+  const initialStream = await navigator.mediaDevices.getUserMedia({
+    video: baseConstraints,
+    audio: false
+  });
+
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cameras = devices.filter(device => device.kind === "videoinput");
+    const preferredCamera = escolherCameraDocumento(cameras);
+    const [currentTrack] = initialStream.getVideoTracks();
+    const currentDeviceId = currentTrack?.getSettings?.().deviceId;
+
+    if (preferredCamera?.deviceId && preferredCamera.deviceId !== currentDeviceId) {
+      initialStream.getTracks().forEach(track => track.stop());
+      return navigator.mediaDevices.getUserMedia({
+        video: {
+          ...baseConstraints,
+          deviceId: { exact: preferredCamera.deviceId }
+        },
+        audio: false
+      });
+    }
+  } catch (error) {
+    console.info("Nao foi possivel escolher a camera automaticamente:", error);
+  }
+
+  return initialStream;
+}
+
+function escolherCameraDocumento(cameras) {
+  if (!cameras.length) return null;
+
+  const badLabels = /ultra|wide|0\.5|0,5|macro|depth|tele/i;
+  const goodLabels = /back|rear|environment|traseira|principal|main|1x/i;
+  const scored = cameras.map((camera, index) => {
+    const label = camera.label || "";
+    let score = 0;
+
+    if (goodLabels.test(label)) score += 10;
+    if (badLabels.test(label)) score -= 20;
+    if (!label) score -= index;
+
+    return { camera, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0].camera;
+}
+
+async function prepararCameraDocumento(stream) {
+  const [track] = stream.getVideoTracks();
+  if (!track?.getCapabilities || !track.applyConstraints) return;
+
+  const capabilities = track.getCapabilities();
+  const advanced = [];
+
+  if (capabilities.focusMode?.includes("continuous")) {
+    advanced.push({ focusMode: "continuous" });
+  }
+
+  if (capabilities.zoom) {
+    const minZoom = capabilities.zoom.min ?? 1;
+    const maxZoom = capabilities.zoom.max ?? minZoom;
+    const zoom = Math.min(Math.max(1.4, minZoom), maxZoom);
+    advanced.push({ zoom });
+  }
+
+  if (!advanced.length) return;
+
+  try {
+    await track.applyConstraints({ advanced });
+  } catch (error) {
+    console.info("Ajustes de foco/zoom nao suportados nesta camera:", error);
   }
 }
 
