@@ -271,6 +271,10 @@ button:disabled {
   line-height: 1.5;
 }
 
+#mrz-subtitle {
+  white-space: pre-line;
+}
+
 .mrz-close {
   width: 42px;
   min-height: 42px;

@@ -245,6 +245,15 @@ function abrirLeitorDocumento() {
 
 function fecharLeitorDocumento() {
   const modal = document.getElementById("mrz-modal");
+
+  pararCameraDocumento(true);
+  if (modal) {
+    modal.classList.remove("is-open");
+    modal.setAttribute("aria-hidden", "true");
+  }
+}
+
+function pararCameraDocumento(limparDispositivos = false) {
   const camera = document.getElementById("mrz-camera");
   const video = document.getElementById("mrz-video");
 
@@ -255,13 +264,10 @@ function fecharLeitorDocumento() {
 
   if (video) video.srcObject = null;
   if (camera) camera.hidden = true;
-  mrzCameraDevices = [];
   mrzCameraDeviceId = "";
+
+  if (limparDispositivos) mrzCameraDevices = [];
   atualizarBotaoTrocarCamera();
-  if (modal) {
-    modal.classList.remove("is-open");
-    modal.setAttribute("aria-hidden", "true");
-  }
 }
 
 function selecionarFotoDocumento() {
@@ -447,6 +453,7 @@ function capturarFotoDocumento() {
     crop.width,
     crop.height
   );
+  pararCameraDocumento();
   canvas.toBlob(blob => {
     if (blob) processarImagemDocumento(blob);
   }, "image/jpeg", 0.92);
@@ -473,6 +480,11 @@ function mostrarErroMrz() {
   if (!status) return;
   status.textContent = (traducoes[linguaAtual] || traducoes.pt).leituraFalhou;
   status.hidden = false;
+}
+
+function mostrarFalhaLeituraMrz() {
+  atualizarProgressoMrz(100);
+  mostrarErroMrz();
 }
 
 function atualizarProgressoMrz(percentagem) {
@@ -658,7 +670,7 @@ async function processarImagemDocumentoTesseract(imagem, log) {
     if (!dados) {
       adicionarLogMrz(log, "Resultado", "Nenhuma MRZ local valida encontrada.");
       mostrarTextoMrz(texto, dados, log);
-      mostrarErroMrz();
+      mostrarFalhaLeituraMrz();
       return;
     }
 
@@ -672,7 +684,7 @@ async function processarImagemDocumentoTesseract(imagem, log) {
     console.warn("Erro ao ler MRZ:", error);
     adicionarLogMrz(log, "Erro OCR", error?.message || String(error));
     mostrarTextoMrz("", null, log);
-    mostrarErroMrz();
+    mostrarFalhaLeituraMrz();
   }
 }
 
