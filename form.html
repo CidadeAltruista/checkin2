@@ -1,0 +1,232 @@
+<section class="checkin-panel" aria-label="Formulario de check-in">
+  <div class="form-topbar">
+    <div id="lingua-selector" class="language-buttons" aria-label="Selecionar idioma">
+      <button type="button" onclick="selecionarLingua('pt')" id="btn-pt">PT</button>
+      <button type="button" onclick="selecionarLingua('en')" id="btn-en">EN</button>
+      <button type="button" onclick="selecionarLingua('fr')" id="btn-fr">FR</button>
+      <button type="button" onclick="selecionarLingua('es')" id="btn-es">ES</button>
+    </div>
+  </div>
+
+  <div class="scan-entry">
+    <button type="button" id="btn-ler-documento" class="scan-button icon-button" onclick="abrirLeitorDocumento()">
+      <span class="button-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4V8Zm8 9a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/></svg>
+      </span>
+      <span>Ler documento</span>
+    </button>
+  </div>
+
+  <div id="mrz-modal" class="mrz-modal" aria-hidden="true">
+    <div class="mrz-dialog" role="dialog" aria-modal="true" aria-labelledby="mrz-title">
+      <div class="mrz-header">
+        <div>
+          <h3 id="mrz-title">Ler documento</h3>
+          <p id="mrz-subtitle">Aponte a camera para que a zona MRZ ocupe a moldura. No upload, envie uma foto recortada quase so com essas linhas.</p>
+        </div>
+        <button type="button" class="mrz-close" onclick="fecharLeitorDocumento()" aria-label="Fechar">x</button>
+      </div>
+
+      <div class="mrz-instructions">
+        <img src="mrz-guide.png" alt="Exemplo da zona MRZ no documento">
+      </div>
+
+      <div class="mrz-actions">
+        <button type="button" id="btn-upload-foto" class="icon-button" onclick="selecionarFotoDocumento()">
+          <span class="button-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 3 7 8h3v6h4V8h3l-5-5ZM5 17h14v3H5v-3Z"/></svg>
+          </span>
+          <span>Upload da foto</span>
+        </button>
+        <button type="button" id="btn-usar-camera" class="icon-button" onclick="iniciarCameraDocumento()">
+          <span class="button-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4V8Zm8 9a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/></svg>
+          </span>
+          <span>Usar camera</span>
+        </button>
+      </div>
+
+      <input type="file" id="mrz-file-input" accept="image/*" hidden>
+
+      <div id="mrz-camera" class="mrz-camera" hidden>
+        <div class="mrz-video-wrap">
+          <video id="mrz-video" playsinline autoplay muted></video>
+          <div class="mrz-guide">
+            <span>MRZ</span>
+          </div>
+        </div>
+        <button type="button" id="btn-capturar-foto" class="icon-button" onclick="capturarFotoDocumento()">
+          <span class="button-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 17.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9ZM3 7h3l2-3h8l2 3h3v13H3V7Z"/></svg>
+          </span>
+          <span>Capturar foto</span>
+        </button>
+      </div>
+
+      <canvas id="mrz-canvas" hidden></canvas>
+      <div class="mrz-progress" aria-live="polite">
+        <div class="mrz-progress-top">
+          <span id="mrz-progress-label">Progresso</span>
+          <span id="mrz-progress-percent">0%</span>
+        </div>
+        <div class="mrz-progress-track">
+          <div id="mrz-progress-bar" class="mrz-progress-bar"></div>
+        </div>
+      </div>
+      <p id="mrz-status" class="mrz-status" hidden></p>
+      <pre id="mrz-result" class="mrz-result" hidden></pre>
+    </div>
+  </div>
+
+  <div id="erro-idreserva" class="erro-reserva" style="display: none;"></div>
+
+  <section id="success-screen" class="success-screen" hidden>
+    <img class="success-logo" src="logotipo.png" alt="Alojamento Ninho">
+    <h2 id="success-title">Obrigado</h2>
+    <p id="success-message">O formulário foi enviado com sucesso.</p>
+    <button type="button" id="btn-add-guest" class="icon-button" onclick="adicionarOutroHospede()">
+      <span class="button-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M11 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-4 0-7 2-7 4.5V20h8.2a6.5 6.5 0 0 1 1.4-6.1A10.7 10.7 0 0 0 11 13Zm7 1v3h3v2h-3v3h-2v-3h-3v-2h3v-3h2Z"/></svg>
+      </span>
+      <span>Adicionar outro hóspede</span>
+    </button>
+  </section>
+
+  <form id="checkinForm" novalidate onsubmit="return validarFormulario(event)">
+    <input type="hidden" id="id-reserva" name="idReserva">
+    <input type="hidden" id="id-number-source" name="idNumberSource">
+
+    <fieldset class="form-section">
+      <legend id="section-hospede">Hóspede</legend>
+      <div class="form-grid">
+        <div class="field">
+          <label id="label-primeiro-nome" for="primeiro-nome-input"></label>
+          <input type="text" id="primeiro-nome-input" name="primeiroNome" maxlength="40" autocomplete="given-name" required>
+        </div>
+
+        <div class="field">
+          <label id="label-ultimo-nome" for="ultimo-nome-input"></label>
+          <input type="text" id="ultimo-nome-input" name="ultimoNome" maxlength="40" autocomplete="family-name" required>
+        </div>
+
+        <div class="field">
+          <label id="label-local-nascimento" for="local-nascimento-input"></label>
+          <input type="text" id="local-nascimento-input" name="localNascimento" maxlength="40" required>
+        </div>
+
+        <div class="field">
+          <label id="label-data-nascimento" for="data-nascimento-input"></label>
+          <input type="date" id="data-nascimento-input" name="dataNascimento" required>
+        </div>
+
+        <div class="field">
+          <label id="label-country-residence" for="country-residence-input"></label>
+          <select id="country-residence-input" name="countryResidence" required></select>
+        </div>
+
+        <div class="field">
+          <label id="label-place-residence" for="place-residence-input"></label>
+          <input type="text" id="place-residence-input" name="placeResidence" maxlength="40" autocomplete="street-address" required>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset class="form-section">
+      <legend id="section-documento">Documento</legend>
+      <div class="form-grid">
+        <div class="field">
+          <label id="label-nacionalidade" for="nacionalidade-input"></label>
+          <select id="nacionalidade-input" name="nacionalidade" required></select>
+        </div>
+
+        <div class="field">
+          <label id="label-country-document" for="country-document-input"></label>
+          <select id="country-document-input" name="countryDocument" required></select>
+        </div>
+
+        <div class="field">
+          <label id="label-id-type" for="id-type-input"></label>
+          <select id="id-type-input" name="idType" required>
+            <option value="Passport">Passport</option>
+            <option value="ID">ID</option>
+          </select>
+        </div>
+
+        <div class="field field-wide">
+          <label id="label-id-number" for="id-number-input"></label>
+          <input type="text" id="id-number-input" name="idNumber" maxlength="40" autocomplete="off" required>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset class="form-section">
+      <legend id="section-estadia">Estadia</legend>
+      <div class="form-grid">
+        <div class="field">
+          <label id="label-arrival-time" for="arrival-time-input"></label>
+          <input type="time" id="arrival-time-input" name="arrivalTime">
+        </div>
+
+        <div class="field">
+          <label id="label-email" for="email-input"></label>
+          <input type="email" id="email-input" name="email" autocomplete="email">
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset class="form-section invoice-section">
+      <legend id="section-fatura">Fatura</legend>
+      <div id="fatura-opcao" class="invoice-choice">
+        <label id="label-fatura-checkbox">Deseja fatura com contribuinte?</label>
+        <div class="fatura-buttons">
+          <button type="button" id="btn-fatura-sim" onclick="selecionarFatura(true)">Sim</button>
+          <button type="button" id="btn-fatura-nao" onclick="selecionarFatura(false)">Nao</button>
+        </div>
+      </div>
+
+      <div id="secao-fatura" class="invoice-fields" style="display: none;">
+        <div class="form-grid">
+          <div class="field">
+            <label id="label-nome-fatura" for="nome-fatura"></label>
+            <input type="text" id="nome-fatura" name="nomeFatura" autocomplete="name">
+          </div>
+
+          <div class="field">
+            <label id="label-nif-fatura" for="nif-fatura"></label>
+            <input type="text" id="nif-fatura" name="nifFatura" autocomplete="off">
+          </div>
+
+          <div class="field field-wide">
+            <label id="label-morada-fatura" for="morada-fatura"></label>
+            <input type="text" id="morada-fatura" name="moradaFatura" autocomplete="street-address">
+          </div>
+
+          <div class="field">
+            <label id="label-codpostal-fatura" for="codpostal-fatura"></label>
+            <input type="text" id="codpostal-fatura" name="codPostalFatura" autocomplete="postal-code">
+          </div>
+
+          <div class="field">
+            <label id="label-cidade-fatura" for="cidade-fatura"></label>
+            <input type="text" id="cidade-fatura" name="cidadeFatura" autocomplete="address-level2">
+          </div>
+
+          <div class="field">
+            <label id="label-pais-fatura" for="pais-fatura"></label>
+            <select id="pais-fatura" name="paisFatura"></select>
+          </div>
+
+          <div class="field">
+            <label id="label-email-fatura" for="email-fatura"></label>
+            <input type="email" id="email-fatura" name="emailFatura" autocomplete="email">
+          </div>
+        </div>
+      </div>
+    </fieldset>
+
+    <div class="submit-area">
+      <button type="submit">Enviar</button>
+    </div>
+  </form>
+  <p id="id-reserva-texto" class="reserva-pill"></p>
+</section>

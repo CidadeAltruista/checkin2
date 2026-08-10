@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Formulário Check-in</title>
+  <link rel="stylesheet" href="style.css?v=20260810-21">
+</head>
+<body>
+  <div id="cabecalho-info"></div>
+  <div id="form-container"></div>
+  <script src="lang.js?v=20260810-21"></script>
+  <script src="countries.js?v=20260810-21"></script>
+  <script src="api-config.js?v=20260810-21"></script>
+  <script src="form.js?v=20260810-21"></script>
+  <script>
+    fetch('form.html', { cache: 'no-store' })
+      .then(res => res.text())
+      .then(html => {
+        document.getElementById('form-container').innerHTML = html;
+        initForm();
+      })
+      .catch(error => {
+        console.error('Erro ao carregar o formulario:', error);
+        document.getElementById('form-container').innerHTML =
+          '<p class="erro-carregamento">Nao foi possivel carregar o formulario. Confirme que a pagina esta aberta atraves do servidor local.</p>';
+      });
+  </script>
+</body>
+</html>
