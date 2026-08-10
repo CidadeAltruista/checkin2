@@ -3,6 +3,9 @@ let mrzStream = null;
 let mrzWorker = null;
 let mrzV2Worker = null;
 let mrzV2RequestId = 0;
+let mrzCameraDevices = [];
+let mrzCameraDeviceId = "";
+let mrzCameraTrocaEmCurso = false;
 const MRZ_FIELD_IDS = [
   "primeiro-nome-input",
   "ultimo-nome-input",
@@ -109,6 +112,7 @@ function atualizarTextosMrz(t) {
     "mrz-subtitle": t.mrzSubtitulo,
     "btn-upload-foto": t.uploadFoto,
     "btn-usar-camera": t.usarCamera,
+    "btn-trocar-camera": t.trocarCamera,
     "btn-capturar-foto": t.capturarFoto,
     "mrz-progress-label": t.progresso
   };
@@ -251,6 +255,9 @@ function fecharLeitorDocumento() {
 
   if (video) video.srcObject = null;
   if (camera) camera.hidden = true;
+  mrzCameraDevices = [];
+  mrzCameraDeviceId = "";
+  atualizarBotaoTrocarCamera();
   if (modal) {
     modal.classList.remove("is-open");
     modal.setAttribute("aria-hidden", "true");
@@ -275,6 +282,7 @@ async function iniciarCameraDocumento() {
     video.srcObject = mrzStream;
     camera.hidden = false;
     await prepararCameraDocumento(mrzStream);
+    atualizarBotaoTrocarCamera();
     atualizarEstadoMrz("");
   } catch (error) {
     console.warn("Erro ao abrir camera:", error);
@@ -282,34 +290,37 @@ async function iniciarCameraDocumento() {
   }
 }
 
-async function abrirCameraDocumento() {
+function obterConstraintsCameraDocumento(deviceId = "") {
   const baseConstraints = {
     width: { ideal: 1920 },
     height: { ideal: 1080 },
     facingMode: { ideal: "environment" }
   };
 
+  if (!deviceId) return baseConstraints;
+
+  return {
+    ...baseConstraints,
+    deviceId: { exact: deviceId }
+  };
+}
+
+async function abrirCameraDocumento(deviceId = "") {
   const initialStream = await navigator.mediaDevices.getUserMedia({
-    video: baseConstraints,
+    video: obterConstraintsCameraDocumento(deviceId),
     audio: false
   });
 
   try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const cameras = devices.filter(device => device.kind === "videoinput");
-    const preferredCamera = escolherCameraDocumento(cameras);
+    await atualizarCamerasDocumento();
     const [currentTrack] = initialStream.getVideoTracks();
     const currentDeviceId = currentTrack?.getSettings?.().deviceId;
+    mrzCameraDeviceId = currentDeviceId || deviceId || "";
 
-    if (preferredCamera?.deviceId && preferredCamera.deviceId !== currentDeviceId) {
+    const preferredCamera = escolherCameraDocumento(mrzCameraDevices);
+    if (!deviceId && preferredCamera?.deviceId && preferredCamera.deviceId !== currentDeviceId) {
       initialStream.getTracks().forEach(track => track.stop());
-      return navigator.mediaDevices.getUserMedia({
-        video: {
-          ...baseConstraints,
-          deviceId: { exact: preferredCamera.deviceId }
-        },
-        audio: false
-      });
+      return abrirCameraDocumento(preferredCamera.deviceId);
     }
   } catch (error) {
     console.info("Nao foi possivel escolher a camera automaticamente:", error);
@@ -318,24 +329,34 @@ async function abrirCameraDocumento() {
   return initialStream;
 }
 
+async function atualizarCamerasDocumento() {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  mrzCameraDevices = ordenarCamerasDocumento(devices.filter(device => device.kind === "videoinput"));
+}
+
 function escolherCameraDocumento(cameras) {
   if (!cameras.length) return null;
+  return ordenarCamerasDocumento(cameras)[0];
+}
 
-  const badLabels = /ultra|wide|0\.5|0,5|macro|depth|tele/i;
-  const goodLabels = /back|rear|environment|traseira|principal|main|1x/i;
+function ordenarCamerasDocumento(cameras) {
+  const badLabels = /ultra|ultrawide|ultra-wide|wide|angular|grande.?angular|0[,.]5|macro|depth|profundidade/i;
+  const frontLabels = /front|user|frontal|selfie/i;
+  const goodLabels = /back|rear|environment|traseira|principal|main|standard|normal|1x/i;
   const scored = cameras.map((camera, index) => {
     const label = camera.label || "";
     let score = 0;
 
     if (goodLabels.test(label)) score += 10;
-    if (badLabels.test(label)) score -= 20;
+    if (badLabels.test(label)) score -= 30;
+    if (frontLabels.test(label)) score -= 50;
     if (!label) score -= index;
 
     return { camera, score };
   });
 
   scored.sort((a, b) => b.score - a.score);
-  return scored[0].camera;
+  return scored.map(item => item.camera);
 }
 
 async function prepararCameraDocumento(stream) {
@@ -352,7 +373,7 @@ async function prepararCameraDocumento(stream) {
   if (capabilities.zoom) {
     const minZoom = capabilities.zoom.min ?? 1;
     const maxZoom = capabilities.zoom.max ?? minZoom;
-    const zoom = Math.min(Math.max(1.4, minZoom), maxZoom);
+    const zoom = Math.min(Math.max(2, minZoom), maxZoom);
     advanced.push({ zoom });
   }
 
@@ -363,6 +384,44 @@ async function prepararCameraDocumento(stream) {
   } catch (error) {
     console.info("Ajustes de foco/zoom nao suportados nesta camera:", error);
   }
+}
+
+async function trocarCameraDocumento() {
+  const video = document.getElementById("mrz-video");
+
+  if (mrzCameraTrocaEmCurso || !navigator.mediaDevices?.getUserMedia || !video) return;
+
+  try {
+    mrzCameraTrocaEmCurso = true;
+    await atualizarCamerasDocumento();
+
+    if (mrzCameraDevices.length < 2) return;
+
+    const currentIndex = mrzCameraDevices.findIndex(camera => camera.deviceId === mrzCameraDeviceId);
+    const nextCamera = mrzCameraDevices[(Math.max(currentIndex, 0) + 1) % mrzCameraDevices.length];
+
+    if (!nextCamera?.deviceId) return;
+
+    if (mrzStream) {
+      mrzStream.getTracks().forEach(track => track.stop());
+    }
+
+    mrzStream = await abrirCameraDocumento(nextCamera.deviceId);
+    video.srcObject = mrzStream;
+    await prepararCameraDocumento(mrzStream);
+    atualizarBotaoTrocarCamera();
+    atualizarEstadoMrz("");
+  } catch (error) {
+    console.warn("Erro ao trocar camera:", error);
+    mostrarErroMrz();
+  } finally {
+    mrzCameraTrocaEmCurso = false;
+  }
+}
+
+function atualizarBotaoTrocarCamera() {
+  const button = document.getElementById("btn-trocar-camera");
+  if (button) button.hidden = mrzCameraDevices.length < 2;
 }
 
 function capturarFotoDocumento() {

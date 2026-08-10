@@ -55,12 +55,20 @@
             <span>MRZ</span>
           </div>
         </div>
-        <button type="button" id="btn-capturar-foto" class="icon-button" onclick="capturarFotoDocumento()">
-          <span class="button-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24"><path d="M12 17.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9ZM3 7h3l2-3h8l2 3h3v13H3V7Z"/></svg>
-          </span>
-          <span>Capturar foto</span>
-        </button>
+        <div class="mrz-camera-actions">
+          <button type="button" id="btn-trocar-camera" class="icon-button" onclick="trocarCameraDocumento()" hidden>
+            <span class="button-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M7 7h7.5a4.5 4.5 0 0 1 0 9H9v3l-5-5 5-5v3h5.5a1.5 1.5 0 0 0 0-3H7V7Zm10-2h-5.5a4.5 4.5 0 0 0 0 9H17v3l5-5-5-5v3h-5.5a1.5 1.5 0 0 1 0-3H17V5Z"/></svg>
+            </span>
+            <span>Trocar camera</span>
+          </button>
+          <button type="button" id="btn-capturar-foto" class="icon-button" onclick="capturarFotoDocumento()">
+            <span class="button-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M12 17.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9ZM3 7h3l2-3h8l2 3h3v13H3V7Z"/></svg>
+            </span>
+            <span>Capturar foto</span>
+          </button>
+        </div>
       </div>
 
       <canvas id="mrz-canvas" hidden></canvas>
