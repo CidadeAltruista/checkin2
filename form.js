@@ -1145,6 +1145,13 @@ async function prepararTentativasMrzRecortada(imagem) {
 
   return [
     await prepararImagemMrz(imagem, {
+      nome: "MRZ recortada natural",
+      ...base,
+      threshold: null,
+      contrast: 1.25,
+      sharpen: 0
+    }),
+    await prepararImagemMrz(imagem, {
       nome: "MRZ recortada cinzento",
       ...base,
       threshold: null,
@@ -1501,21 +1508,26 @@ function gerarVariantesLinhaMrz(linha, tamanho, reparar) {
 }
 
 function repararLinhaMrz(linha, tamanho) {
-  return linha
-    .replace(/K(?=[<K]{2,})/g, "<")
-    .replace(/(?<=[<K]{2})K/g, "<")
+  return corrigirSequenciasFillerMrz(linha)
     .padEnd(tamanho, "<")
     .slice(0, tamanho);
 }
 
 function repararLinhaNomeMrz(linha, tamanho) {
-  let reparada = linha.padEnd(tamanho, "<").slice(0, tamanho);
+  let reparada = corrigirSequenciasFillerMrz(linha).padEnd(tamanho, "<").slice(0, tamanho);
 
   return reparada
     .replace(/K(?=<)/g, "<")
     .replace(/(?<=<)K(?=<)/g, "<")
     .replace(/[CL](?=[<CL]{2,}$)/g, "<")
     .replace(/(?<=<{2,})[CL](?=<*$)/g, "<");
+}
+
+function corrigirSequenciasFillerMrz(linha) {
+  return String(linha || "")
+    .replace(/[KLCI](?=[<KLCI]{2,})/g, "<")
+    .replace(/(?<=[<KLCI]{2})[KLCI]/g, "<")
+    .replace(/[KLCI]{4,}$/g, match => "<".repeat(match.length));
 }
 
 function parseMrzTd3(linhas, log) {
