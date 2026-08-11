@@ -390,19 +390,12 @@ async function prepararCameraDocumento(stream) {
     advanced.push({ focusMode: "continuous" });
   }
 
-  if (capabilities.zoom) {
-    const minZoom = capabilities.zoom.min ?? 1;
-    const maxZoom = capabilities.zoom.max ?? minZoom;
-    const zoom = Math.min(Math.max(2, minZoom), maxZoom);
-    advanced.push({ zoom });
-  }
-
   if (!advanced.length) return;
 
   try {
     await track.applyConstraints({ advanced });
   } catch (error) {
-    console.info("Ajustes de foco/zoom nao suportados nesta camera:", error);
+    console.info("Ajuste de foco nao suportado nesta camera:", error);
   }
 }
 
