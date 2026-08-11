@@ -555,6 +555,11 @@ async function processarImagemDocumentoAlsenet(imagem, log) {
     if (!result || result.error || !result.parsed) {
       console.warn("MRZ v2 sem resultado valido:", result);
       adicionarLogMrz(log, "Motor v2", `Sem parse valido: ${result?.error || "sem detalhe"}.`);
+      const dadosPorLinhas = tentarMapearLinhasAlsenet(result, log);
+      if (dadosPorLinhas) {
+        finalizarLeituraMrz((result?.ocrLines || []).join("\n"), dadosPorLinhas, log);
+        return true;
+      }
       mostrarTextoMrz((result?.ocrLines || []).join("\n"), null, log);
       mostrarErroMrz();
       return false;
@@ -563,6 +568,11 @@ async function processarImagemDocumentoAlsenet(imagem, log) {
     if (result.parsed.valid === false) {
       console.warn("MRZ v2 com checksums invalidos:", result.parsed);
       adicionarLogMrz(log, "Checksum v2", "Parser devolveu MRZ invalida.");
+      const dadosPorLinhas = tentarMapearLinhasAlsenet(result, log);
+      if (dadosPorLinhas) {
+        finalizarLeituraMrz((result.ocrLines || []).join("\n"), dadosPorLinhas, log);
+        return true;
+      }
       mostrarTextoMrz((result.ocrLines || []).join("\n"), null, log);
       mostrarErroMrz();
       return false;
@@ -573,17 +583,17 @@ async function processarImagemDocumentoAlsenet(imagem, log) {
 
     if (!dados) {
       adicionarLogMrz(log, "Mapeamento", "MRZ encontrada, mas sem campos suficientes para preencher.");
+      const dadosPorLinhas = tentarMapearLinhasAlsenet(result, log);
+      if (dadosPorLinhas) {
+        finalizarLeituraMrz((result.ocrLines || []).join("\n"), dadosPorLinhas, log);
+        return true;
+      }
       mostrarTextoMrz((result.ocrLines || []).join("\n"), null, log);
       mostrarErroMrz();
       return false;
     }
 
-    preencherCamposComMrz(dados);
-    adicionarLogMrz(log, "Preenchimento", "Campos substituidos no formulario.");
-    mostrarTextoMrz((result.ocrLines || []).join("\n"), dados, log);
-    atualizarProgressoMrz(100);
-    atualizarEstadoMrz("");
-    fecharLeitorDocumento();
+    finalizarLeituraMrz((result.ocrLines || []).join("\n"), dados, log);
     return true;
   } catch (error) {
     console.warn("Erro no leitor MRZ v2:", error);
@@ -591,6 +601,25 @@ async function processarImagemDocumentoAlsenet(imagem, log) {
     mostrarErroMrz();
     return false;
   }
+}
+
+function tentarMapearLinhasAlsenet(result, log) {
+  const texto = (result?.ocrLines || []).join("\n");
+  if (!texto.trim()) return null;
+
+  adicionarLogMrz(log, "Fallback v2", "A validar linhas OCR com parser local.");
+  const dados = extrairDadosMrz(texto, log);
+  if (dados) adicionarLogMrz(log, "Fallback v2", "Linhas OCR aceites pelo parser local.");
+  return dados;
+}
+
+function finalizarLeituraMrz(texto, dados, log) {
+  preencherCamposComMrz(dados);
+  adicionarLogMrz(log, "Preenchimento", "Campos substituidos no formulario.");
+  mostrarTextoMrz(texto, dados, log);
+  atualizarProgressoMrz(100);
+  atualizarEstadoMrz("");
+  fecharLeitorDocumento();
 }
 
 function obterWorkerAlsenet() {
