@@ -486,9 +486,10 @@ function mostrarErroMrz() {
   status.hidden = false;
 }
 
-function mostrarFalhaLeituraMrz() {
+function mostrarFalhaLeituraMrz(opcoes = {}) {
+  const { mostrarRecorte = true } = opcoes;
   atualizarProgressoMrz(100);
-  mostrarRecorteManualMrz();
+  if (mostrarRecorte) mostrarRecorteManualMrz();
   mostrarErroMrz();
 }
 
@@ -677,7 +678,7 @@ async function processarImagemDocumentoAlsenet(imagem, log) {
         return true;
       }
       mostrarTextoMrz((result?.ocrLines || []).join("\n"), null, log);
-      mostrarFalhaLeituraMrz();
+      mostrarFalhaLeituraMrz({ mostrarRecorte: false });
       return false;
     }
 
@@ -690,7 +691,7 @@ async function processarImagemDocumentoAlsenet(imagem, log) {
         return true;
       }
       mostrarTextoMrz((result.ocrLines || []).join("\n"), null, log);
-      mostrarFalhaLeituraMrz();
+      mostrarFalhaLeituraMrz({ mostrarRecorte: false });
       return false;
     }
 
@@ -705,7 +706,7 @@ async function processarImagemDocumentoAlsenet(imagem, log) {
         return true;
       }
       mostrarTextoMrz((result.ocrLines || []).join("\n"), null, log);
-      mostrarFalhaLeituraMrz();
+      mostrarFalhaLeituraMrz({ mostrarRecorte: false });
       return false;
     }
 
@@ -715,7 +716,7 @@ async function processarImagemDocumentoAlsenet(imagem, log) {
     console.warn("Erro no leitor MRZ v2:", error);
     adicionarLogMrz(log, "Erro v2", error?.message || String(error));
     mostrarTextoMrz("", null, log);
-    mostrarFalhaLeituraMrz();
+    mostrarFalhaLeituraMrz({ mostrarRecorte: false });
     return false;
   }
 }
@@ -774,7 +775,7 @@ function finalizarLeituraMrz(texto, dados, log) {
   mostrarTextoMrz(texto, dados, log);
   atualizarProgressoMrz(100);
   atualizarEstadoMrz("");
-  fecharLeitorDocumento();
+  esconderRecorteManualMrz();
 }
 
 function obterWorkerAlsenet() {
@@ -858,12 +859,8 @@ async function processarImagemDocumentoTesseract(imagem, log) {
       return;
     }
 
-    preencherCamposComMrz(dados);
     adicionarLogMrz(log, "Resultado", "MRZ local validada e campos preenchidos.");
-    mostrarTextoMrz(texto, dados, log);
-    atualizarProgressoMrz(100);
-    atualizarEstadoMrz("");
-    fecharLeitorDocumento();
+    finalizarLeituraMrz(texto, dados, log);
   } catch (error) {
     console.warn("Erro ao ler MRZ:", error);
     adicionarLogMrz(log, "Erro OCR", error?.message || String(error));
@@ -1008,6 +1005,14 @@ async function prepararTentativasMrz(imagem, log) {
       maxWidth: 2200,
       threshold: 122,
       contrast: 1.2
+    }));
+    tentativasDetectadas.push(await prepararImagemMrz(imagem, {
+      nome: "MRZ detetada cinzento",
+      ...cropDetectado,
+      maxWidth: 2200,
+      threshold: null,
+      contrast: 1.65,
+      sharpen: 0.75
     }));
   } else {
     adicionarLogMrz(log, "Deteccao MRZ", "Nenhum crop automatico encontrado.");
@@ -1238,14 +1243,21 @@ function prepararImagemMrz(imagem, opcoes) {
 
       const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = pixels.data;
+      const gray = new Float32Array(canvas.width * canvas.height);
 
       for (let i = 0; i < data.length; i += 4) {
         const cinza = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-        const contraste = Math.max(0, Math.min(255, (cinza - 128) * opcoes.contrast + 128));
-        const limiar = contraste > opcoes.threshold ? 255 : 0;
-        data[i] = limiar;
-        data[i + 1] = limiar;
-        data[i + 2] = limiar;
+        gray[i / 4] = Math.max(0, Math.min(255, (cinza - 128) * opcoes.contrast + 128));
+      }
+
+      if (opcoes.sharpen) aplicarNitidezMrz(gray, canvas.width, canvas.height, opcoes.sharpen);
+
+      for (let i = 0; i < data.length; i += 4) {
+        const valor = gray[i / 4];
+        const saida = opcoes.threshold === null ? valor : (valor > opcoes.threshold ? 255 : 0);
+        data[i] = saida;
+        data[i + 1] = saida;
+        data[i + 2] = saida;
       }
 
       ctx.putImageData(pixels, 0, 0);
@@ -1266,6 +1278,22 @@ function prepararImagemMrz(imagem, opcoes) {
 
     img.src = url;
   });
+}
+
+function aplicarNitidezMrz(gray, width, height, amount) {
+  const original = new Float32Array(gray);
+
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const i = y * width + x;
+      const blur = (
+        original[i - width - 1] + original[i - width] + original[i - width + 1] +
+        original[i - 1] + original[i] + original[i + 1] +
+        original[i + width - 1] + original[i + width] + original[i + width + 1]
+      ) / 9;
+      gray[i] = Math.max(0, Math.min(255, original[i] + (original[i] - blur) * amount));
+    }
+  }
 }
 
 function criarLogMrz(imagem) {
@@ -1292,7 +1320,7 @@ function mostrarTextoMrz(texto, dados, log) {
     ? `MRZ detectada:\n${rawLines.join("\n")}`
     : `Texto encontrado:\n${texto.trim()}`;
   result.textContent = `${formatarLogMrz(log)}${conteudo}`;
-  result.hidden = Boolean(dados);
+  result.hidden = false;
   console.debug(result.textContent);
 }
 
