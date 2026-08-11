@@ -561,7 +561,7 @@ async function processarImagemDocumentoAlsenet(imagem, log) {
         return true;
       }
       mostrarTextoMrz((result?.ocrLines || []).join("\n"), null, log);
-      mostrarErroMrz();
+      mostrarFalhaLeituraMrz();
       return false;
     }
 
@@ -574,7 +574,7 @@ async function processarImagemDocumentoAlsenet(imagem, log) {
         return true;
       }
       mostrarTextoMrz((result.ocrLines || []).join("\n"), null, log);
-      mostrarErroMrz();
+      mostrarFalhaLeituraMrz();
       return false;
     }
 
@@ -589,7 +589,7 @@ async function processarImagemDocumentoAlsenet(imagem, log) {
         return true;
       }
       mostrarTextoMrz((result.ocrLines || []).join("\n"), null, log);
-      mostrarErroMrz();
+      mostrarFalhaLeituraMrz();
       return false;
     }
 
@@ -598,7 +598,8 @@ async function processarImagemDocumentoAlsenet(imagem, log) {
   } catch (error) {
     console.warn("Erro no leitor MRZ v2:", error);
     adicionarLogMrz(log, "Erro v2", error?.message || String(error));
-    mostrarErroMrz();
+    mostrarTextoMrz("", null, log);
+    mostrarFalhaLeituraMrz();
     return false;
   }
 }
@@ -992,7 +993,7 @@ function mostrarTextoMrz(texto, dados, log) {
     ? `MRZ detectada:\n${rawLines.join("\n")}`
     : `Texto encontrado:\n${texto.trim()}`;
   result.textContent = `${formatarLogMrz(log)}${conteudo}`;
-  result.hidden = true;
+  result.hidden = Boolean(dados);
   console.debug(result.textContent);
 }
 
