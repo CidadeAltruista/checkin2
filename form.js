@@ -833,7 +833,7 @@ async function processarImagemDocumentoTesseract(imagem, log) {
     atualizarProgressoMrz(12);
     atualizarEstadoMrz("");
     const worker = await obterWorkerMrz();
-    const tentativas = await prepararTentativasMrz(imagem);
+    const tentativas = await prepararTentativasMrz(imagem, log);
     adicionarLogMrz(log, "Fallback OCR", `${tentativas.length} preparacoes/crops gerados.`);
     let texto = "";
     let dados = null;
@@ -989,7 +989,30 @@ function paisMrzOuValor(valor) {
   return codigo.length === 3 ? paisMrzParaNome(codigo) || texto : texto;
 }
 
-async function prepararTentativasMrz(imagem) {
+async function prepararTentativasMrz(imagem, log) {
+  const cropDetectado = await detectarZonaMrz(imagem);
+  const tentativasDetectadas = [];
+
+  if (cropDetectado) {
+    adicionarLogMrz(log, "Deteccao MRZ", `Crop automatico: x=${cropDetectado.x.toFixed(3)}, y=${cropDetectado.y.toFixed(3)}, w=${cropDetectado.width.toFixed(3)}, h=${cropDetectado.height.toFixed(3)}.`);
+    tentativasDetectadas.push(await prepararImagemMrz(imagem, {
+      nome: "MRZ detetada automaticamente",
+      ...cropDetectado,
+      maxWidth: 2200,
+      threshold: 132,
+      contrast: 1.45
+    }));
+    tentativasDetectadas.push(await prepararImagemMrz(imagem, {
+      nome: "MRZ detetada suave",
+      ...cropDetectado,
+      maxWidth: 2200,
+      threshold: 122,
+      contrast: 1.2
+    }));
+  } else {
+    adicionarLogMrz(log, "Deteccao MRZ", "Nenhum crop automatico encontrado.");
+  }
+
   const imagemRecortada = await prepararImagemMrz(imagem, {
     nome: "imagem MRZ",
     x: 0,
@@ -1062,6 +1085,7 @@ async function prepararTentativasMrz(imagem) {
   });
 
   return [
+    ...tentativasDetectadas,
     imagemRecortada,
     imagemRecortadaSuave,
     zonaMrzCartao,
@@ -1070,6 +1094,127 @@ async function prepararTentativasMrz(imagem) {
     linhaMrzBaixa,
     zonaInferior
   ];
+}
+
+function detectarZonaMrz(imagem) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(imagem);
+
+    img.onload = () => {
+      const width = 900;
+      const height = Math.max(1, Math.round(img.naturalHeight * width / img.naturalWidth));
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+      canvas.width = width;
+      canvas.height = height;
+      ctx.drawImage(img, 0, 0, width, height);
+
+      const pixels = ctx.getImageData(0, 0, width, height).data;
+      const rowScores = new Array(height).fill(0);
+      const minY = Math.floor(height * 0.45);
+      const maxY = Math.floor(height * 0.92);
+      const minX = Math.floor(width * 0.02);
+      const maxX = Math.floor(width * 0.98);
+
+      for (let y = minY; y < maxY; y++) {
+        let dark = 0;
+        let columnsWithInk = 0;
+
+        for (let x = minX; x < maxX; x += 2) {
+          const i = (y * width + x) * 4;
+          const gray = pixels[i] * 0.299 + pixels[i + 1] * 0.587 + pixels[i + 2] * 0.114;
+          if (gray < 120) {
+            dark++;
+            columnsWithInk++;
+          }
+        }
+
+        rowScores[y] = dark * (columnsWithInk / ((maxX - minX) / 2));
+      }
+
+      const smooth = rowScores.map((_, y) => {
+        let total = 0;
+        let count = 0;
+        for (let dy = -3; dy <= 3; dy++) {
+          const yy = y + dy;
+          if (yy >= 0 && yy < height) {
+            total += rowScores[yy];
+            count++;
+          }
+        }
+        return total / Math.max(1, count);
+      });
+
+      const peaks = [];
+      const threshold = Math.max(...smooth.slice(minY, maxY)) * 0.28;
+      let start = -1;
+
+      for (let y = minY; y < maxY; y++) {
+        if (smooth[y] > threshold && start < 0) start = y;
+        if ((smooth[y] <= threshold || y === maxY - 1) && start >= 0) {
+          const end = y;
+          if (end - start >= 3) {
+            const score = smooth.slice(start, end + 1).reduce((sum, value) => sum + value, 0);
+            peaks.push({ start, end, center: (start + end) / 2, score });
+          }
+          start = -1;
+        }
+      }
+
+      const mrz = escolherBandasMrz(peaks);
+      URL.revokeObjectURL(url);
+
+      if (!mrz) {
+        resolve(null);
+        return;
+      }
+
+      const y0 = Math.max(0, (mrz.start - height * 0.035) / height);
+      const y1 = Math.min(1, (mrz.end + height * 0.04) / height);
+      resolve({
+        x: 0.03,
+        width: 0.94,
+        y: y0,
+        height: Math.max(0.12, y1 - y0)
+      });
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
+
+    img.src = url;
+  });
+}
+
+function escolherBandasMrz(peaks) {
+  const candidates = peaks
+    .filter(peak => peak.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10)
+    .sort((a, b) => a.center - b.center);
+
+  let best = null;
+  for (let i = 0; i <= candidates.length - 3; i++) {
+    const group = candidates.slice(i, i + 3);
+    const gap1 = group[1].center - group[0].center;
+    const gap2 = group[2].center - group[1].center;
+    const regularity = Math.abs(gap1 - gap2);
+    const score = group.reduce((sum, peak) => sum + peak.score, 0) - regularity * 12 + group[2].center * 0.8;
+
+    if (!best || score > best.score) {
+      best = {
+        start: group[0].start,
+        end: group[2].end,
+        score
+      };
+    }
+  }
+
+  return best;
 }
 
 function prepararImagemMrz(imagem, opcoes) {
