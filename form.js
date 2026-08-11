@@ -684,7 +684,7 @@ async function processarImagemDocumentoTesseract(imagem, log) {
     let dados = null;
 
     for (const [index, tentativa] of tentativas.entries()) {
-      atualizarProgressoMrz(20 + index * 13);
+      atualizarProgressoMrz(20 + index * Math.floor(60 / Math.max(1, tentativas.length)));
       adicionarLogMrz(log, "Tentativa OCR", `A ler: ${tentativa.nome}.`);
       const resultado = await worker.recognize(tentativa.blob);
       texto = resultado?.data?.text || "";
@@ -855,6 +855,26 @@ async function prepararTentativasMrz(imagem) {
     threshold: 132,
     contrast: 1.15
   });
+  const zonaMrzCartao = await prepararImagemMrz(imagem, {
+    nome: "zona MRZ cartao",
+    x: 0.02,
+    width: 0.96,
+    y: 0.58,
+    height: 0.31,
+    maxWidth: 1900,
+    threshold: 136,
+    contrast: 1.35
+  });
+  const linhasMrzCartao = await prepararImagemMrz(imagem, {
+    nome: "linhas MRZ cartao",
+    x: 0.04,
+    width: 0.94,
+    y: 0.62,
+    height: 0.22,
+    maxWidth: 2100,
+    threshold: 134,
+    contrast: 1.4
+  });
   const linhaMrz = await prepararImagemMrz(imagem, {
     nome: "linhas MRZ",
     x: 0.04,
@@ -886,7 +906,15 @@ async function prepararTentativasMrz(imagem) {
     contrast: 1.3
   });
 
-  return [imagemRecortada, imagemRecortadaSuave, linhaMrz, linhaMrzBaixa, zonaInferior];
+  return [
+    imagemRecortada,
+    imagemRecortadaSuave,
+    zonaMrzCartao,
+    linhasMrzCartao,
+    linhaMrz,
+    linhaMrzBaixa,
+    zonaInferior
+  ];
 }
 
 function prepararImagemMrz(imagem, opcoes) {
