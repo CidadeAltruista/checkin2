@@ -605,13 +605,51 @@ async function processarImagemDocumentoAlsenet(imagem, log) {
 }
 
 function tentarMapearLinhasAlsenet(result, log) {
-  const texto = (result?.ocrLines || []).join("\n");
+  const linhas = normalizarLinhasOcrAlsenet(result?.ocrLines || []);
+  const texto = linhas.join("\n");
   if (!texto.trim()) return null;
 
+  adicionarLogMrz(log, "Fallback v2", `Linhas normalizadas: ${linhas.map(linha => linha.length).join(", ")}.`);
+  adicionarLogMrz(log, "Fallback v2", linhas.join(" | "));
   adicionarLogMrz(log, "Fallback v2", "A validar linhas OCR com parser local.");
   const dados = extrairDadosMrz(texto, log);
   if (dados) adicionarLogMrz(log, "Fallback v2", "Linhas OCR aceites pelo parser local.");
   return dados;
+}
+
+function normalizarLinhasOcrAlsenet(ocrLines) {
+  return (ocrLines || [])
+    .map((linha) => {
+      if (typeof linha === "string") return linha;
+      if (Array.isArray(linha)) return linha.join("");
+      if (linha && typeof linha === "object") {
+        return linha.text || linha.line || linha.value || linha.raw || JSON.stringify(linha);
+      }
+      return String(linha || "");
+    })
+    .map(limparLinhaMrz)
+    .flatMap(dividirLinhaMrzColada)
+    .filter(Boolean);
+}
+
+function limparLinhaMrz(linha) {
+  return String(linha)
+    .toUpperCase()
+    .replace(/[Â«â€¹]/g, "<")
+    .replace(/[«‹]/g, "<")
+    .replace(/\s/g, "")
+    .replace(/[^A-Z0-9<]/g, "");
+}
+
+function dividirLinhaMrzColada(linha) {
+  if (linha.length <= 31) return [linha];
+
+  const partes = [];
+  for (let i = 0; i < linha.length; i += 30) {
+    const parte = linha.slice(i, i + 30);
+    if (parte.length >= 20 && parte.includes("<")) partes.push(parte);
+  }
+  return partes.length ? partes : [linha];
 }
 
 function finalizarLeituraMrz(texto, dados, log) {
@@ -1026,8 +1064,8 @@ function normalizarTextoMrz(texto) {
   return texto
     .toUpperCase()
     .split(/\r?\n/)
-    .map(linha => linha.replace(/[«‹]/g, "<"))
-    .map(linha => linha.replace(/\s/g, "").replace(/[^A-Z0-9<]/g, ""))
+    .map(limparLinhaMrz)
+    .flatMap(dividirLinhaMrzColada)
     .filter(linha => linha.length >= 20 && linha.includes("<"));
 }
 
@@ -1061,12 +1099,18 @@ function encontrarMrzTd3(linhas) {
 
 function encontrarMrzTd1(linhas) {
   for (let i = 0; i <= linhas.length - 3; i++) {
-    const linha1 = repararLinhaMrz(linhas[i], 30);
-    const linha2 = repararLinhaMrz(linhas[i + 1], 30);
-    const linha3 = repararLinhaNomeMrz(linhas[i + 2], 30);
+    const linhas1 = gerarVariantesLinhaMrz(linhas[i], 30, repararLinhaMrz);
+    const linhas2 = gerarVariantesLinhaMrz(linhas[i + 1], 30, repararLinhaMrz);
+    const linhas3 = gerarVariantesLinhaMrz(linhas[i + 2], 30, repararLinhaNomeMrz);
 
-    if (/^[IAC][A-Z<]/.test(linha1) && /^\d{6}/.test(linha2) && linha3.includes("<<")) {
-      return [linha1, linha2, linha3];
+    for (const linha1 of linhas1) {
+      for (const linha2 of linhas2) {
+        for (const linha3 of linhas3) {
+          if (/^[IAC][A-Z<]/.test(linha1) && /^\d{6}/.test(linha2) && linha3.includes("<<")) {
+            return [linha1, linha2, linha3];
+          }
+        }
+      }
     }
   }
 
@@ -1075,15 +1119,31 @@ function encontrarMrzTd1(linhas) {
 
 function encontrarMrzTd1Parcial(linhas) {
   for (let i = 0; i <= linhas.length - 2; i++) {
-    const linha1 = repararLinhaMrz(linhas[i], 30);
-    const linha2 = repararLinhaMrz(linhas[i + 1], 30);
+    const linhas1 = gerarVariantesLinhaMrz(linhas[i], 30, repararLinhaMrz);
+    const linhas2 = gerarVariantesLinhaMrz(linhas[i + 1], 30, repararLinhaMrz);
 
-    if (/^[IAC][A-Z<]/.test(linha1) && /^\d{6}/.test(linha2)) {
-      return [linha1, linha2];
+    for (const linha1 of linhas1) {
+      for (const linha2 of linhas2) {
+        if (/^[IAC][A-Z<]/.test(linha1) && /^\d{6}/.test(linha2)) {
+          return [linha1, linha2];
+        }
+      }
     }
   }
 
   return null;
+}
+
+function gerarVariantesLinhaMrz(linha, tamanho, reparar) {
+  const variantes = new Set([reparar(linha, tamanho)]);
+
+  if (linha.length > tamanho) {
+    for (let i = 0; i <= linha.length - tamanho; i++) {
+      variantes.add(reparar(linha.slice(i, i + tamanho), tamanho));
+    }
+  }
+
+  return [...variantes];
 }
 
 function repararLinhaMrz(linha, tamanho) {
