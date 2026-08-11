@@ -73,6 +73,24 @@ No upload, envie uma foto onde as linhas MRZ estejam bem visiveis.</p>
       </div>
 
       <canvas id="mrz-canvas" hidden></canvas>
+      <div id="mrz-manual-crop" class="mrz-manual-crop" hidden>
+        <div class="mrz-crop-preview">
+          <img id="mrz-crop-image" alt="Foto do documento para recorte manual">
+          <div id="mrz-crop-box" class="mrz-crop-box"></div>
+        </div>
+        <div class="mrz-crop-controls">
+          <label>Topo <input type="range" id="mrz-crop-y" min="0" max="90" value="60"></label>
+          <label>Altura <input type="range" id="mrz-crop-h" min="8" max="45" value="24"></label>
+          <label>Esquerda <input type="range" id="mrz-crop-x" min="0" max="35" value="4"></label>
+          <label>Largura <input type="range" id="mrz-crop-w" min="45" max="100" value="92"></label>
+        </div>
+        <button type="button" id="btn-ler-recorte-mrz" class="icon-button" onclick="processarRecorteManualMrz()">
+          <span class="button-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 5h16v3h-2V7H6v10h2v2H4V5Zm11 4 5 5-5 5v-3h-5v-4h5V9Z"/></svg>
+          </span>
+          <span>Ler area selecionada</span>
+        </button>
+      </div>
       <div class="mrz-progress" aria-live="polite">
         <div class="mrz-progress-top">
           <span id="mrz-progress-label">Progresso</span>

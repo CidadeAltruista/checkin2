@@ -6,6 +6,8 @@ let mrzV2RequestId = 0;
 let mrzCameraDevices = [];
 let mrzCameraDeviceId = "";
 let mrzCameraTrocaEmCurso = false;
+let mrzImagemOriginal = null;
+let mrzImagemPreviewUrl = "";
 const MRZ_FIELD_IDS = [
   "primeiro-nome-input",
   "ultimo-nome-input",
@@ -237,6 +239,7 @@ function abrirLeitorDocumento() {
   modal.setAttribute("aria-hidden", "false");
   if (status) status.textContent = "";
   atualizarProgressoMrz(0);
+  esconderRecorteManualMrz();
   if (result) {
     result.hidden = true;
     result.textContent = "";
@@ -247,6 +250,7 @@ function fecharLeitorDocumento() {
   const modal = document.getElementById("mrz-modal");
 
   pararCameraDocumento(true);
+  limparImagemManualMrz();
   if (modal) {
     modal.classList.remove("is-open");
     modal.setAttribute("aria-hidden", "true");
@@ -484,6 +488,7 @@ function mostrarErroMrz() {
 
 function mostrarFalhaLeituraMrz() {
   atualizarProgressoMrz(100);
+  mostrarRecorteManualMrz();
   mostrarErroMrz();
 }
 
@@ -493,6 +498,112 @@ function atualizarProgressoMrz(percentagem) {
   const percent = document.getElementById("mrz-progress-percent");
   if (bar) bar.style.width = `${valor}%`;
   if (percent) percent.textContent = `${valor}%`;
+}
+
+function mostrarRecorteManualMrz() {
+  if (!mrzImagemOriginal) return;
+
+  const panel = document.getElementById("mrz-manual-crop");
+  const image = document.getElementById("mrz-crop-image");
+  if (!panel || !image) return;
+
+  if (mrzImagemPreviewUrl) URL.revokeObjectURL(mrzImagemPreviewUrl);
+  mrzImagemPreviewUrl = URL.createObjectURL(mrzImagemOriginal);
+  image.src = mrzImagemPreviewUrl;
+  panel.hidden = false;
+  atualizarCaixaRecorteMrz();
+}
+
+function esconderRecorteManualMrz() {
+  const panel = document.getElementById("mrz-manual-crop");
+  if (panel) panel.hidden = true;
+}
+
+function limparImagemManualMrz() {
+  esconderRecorteManualMrz();
+  mrzImagemOriginal = null;
+  if (mrzImagemPreviewUrl) {
+    URL.revokeObjectURL(mrzImagemPreviewUrl);
+    mrzImagemPreviewUrl = "";
+  }
+  const image = document.getElementById("mrz-crop-image");
+  if (image) image.removeAttribute("src");
+}
+
+function obterValoresRecorteMrz() {
+  const x = Number(document.getElementById("mrz-crop-x")?.value || 4);
+  const y = Number(document.getElementById("mrz-crop-y")?.value || 60);
+  const w = Number(document.getElementById("mrz-crop-w")?.value || 92);
+  const h = Number(document.getElementById("mrz-crop-h")?.value || 24);
+  const left = Math.max(0, Math.min(95, x));
+  const top = Math.max(0, Math.min(95, y));
+  return {
+    x: left,
+    y: top,
+    w: Math.max(5, Math.min(100 - left, w)),
+    h: Math.max(5, Math.min(100 - top, h))
+  };
+}
+
+function atualizarCaixaRecorteMrz() {
+  const box = document.getElementById("mrz-crop-box");
+  if (!box) return;
+
+  const crop = obterValoresRecorteMrz();
+  box.style.left = `${crop.x}%`;
+  box.style.top = `${crop.y}%`;
+  box.style.width = `${crop.w}%`;
+  box.style.height = `${crop.h}%`;
+}
+
+async function processarRecorteManualMrz() {
+  if (!mrzImagemOriginal) return;
+
+  try {
+    const blob = await criarBlobRecorteManualMrz();
+    esconderRecorteManualMrz();
+    await processarImagemDocumento(blob, { guardarOriginal: false });
+  } catch (error) {
+    console.warn("Erro ao recortar MRZ manualmente:", error);
+    mostrarFalhaLeituraMrz();
+  }
+}
+
+function criarBlobRecorteManualMrz() {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(mrzImagemOriginal);
+
+    img.onload = () => {
+      const crop = obterValoresRecorteMrz();
+      const cropX = Math.floor(img.naturalWidth * crop.x / 100);
+      const cropY = Math.floor(img.naturalHeight * crop.y / 100);
+      const cropW = Math.floor(img.naturalWidth * crop.w / 100);
+      const cropH = Math.floor(img.naturalHeight * crop.h / 100);
+      const canvas = document.createElement("canvas");
+      const escala = Math.min(3, Math.max(1, 2200 / cropW));
+      const ctx = canvas.getContext("2d");
+
+      canvas.width = Math.round(cropW * escala);
+      canvas.height = Math.round(cropH * escala);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
+
+      canvas.toBlob(blob => {
+        URL.revokeObjectURL(url);
+        if (blob) resolve(blob);
+        else reject(new Error("Nao foi possivel criar o recorte MRZ."));
+      }, "image/jpeg", 0.95);
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Nao foi possivel carregar a imagem original."));
+    };
+
+    img.src = url;
+  });
 }
 
 async function carregarTesseract() {
@@ -532,8 +643,13 @@ async function obterWorkerMrz() {
   return mrzWorker;
 }
 
-async function processarImagemDocumento(imagem) {
+async function processarImagemDocumento(imagem, opcoes = {}) {
+  const { guardarOriginal = true } = opcoes;
   const log = criarLogMrz(imagem);
+  if (guardarOriginal) {
+    mrzImagemOriginal = imagem;
+    esconderRecorteManualMrz();
+  }
   atualizarProgressoMrz(0);
 
   if (window.MRZ_CLIENT_SCANNER === "alsenet-v2") {
@@ -1871,6 +1987,10 @@ function initForm() {
     const ficheiro = event.target.files?.[0];
     if (ficheiro) processarImagemDocumento(ficheiro);
     event.target.value = "";
+  });
+
+  ["mrz-crop-x", "mrz-crop-y", "mrz-crop-w", "mrz-crop-h"].forEach(id => {
+    document.getElementById(id)?.addEventListener("input", atualizarCaixaRecorteMrz);
   });
 
   document.getElementById("mrz-modal")?.addEventListener("click", event => {
