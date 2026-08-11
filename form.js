@@ -464,7 +464,7 @@ function capturarFotoDocumento() {
   );
   pararCameraDocumento();
   canvas.toBlob(blob => {
-    if (blob) processarImagemDocumento(blob);
+    if (blob) processarImagemDocumento(blob, { imagemJaRecortada: true });
   }, "image/jpeg", 0.92);
 }
 
@@ -591,7 +591,7 @@ async function processarRecorteManualMrz() {
   try {
     const blob = await criarBlobRecorteManualMrz();
     esconderRecorteManualMrz();
-    await processarImagemDocumento(blob, { guardarOriginal: false });
+    await processarImagemDocumento(blob, { guardarOriginal: false, imagemJaRecortada: true });
   } catch (error) {
     console.warn("Erro ao recortar MRZ manualmente:", error);
     mostrarFalhaLeituraMrz();
@@ -673,7 +673,7 @@ async function obterWorkerMrz() {
 }
 
 async function processarImagemDocumento(imagem, opcoes = {}) {
-  const { guardarOriginal = true } = opcoes;
+  const { guardarOriginal = true, imagemJaRecortada = false } = opcoes;
   const log = criarLogMrz(imagem);
   if (guardarOriginal) {
     mrzImagemOriginal = imagem;
@@ -686,7 +686,7 @@ async function processarImagemDocumento(imagem, opcoes = {}) {
     if (lidoNoBrowser) return;
   }
 
-  await processarImagemDocumentoTesseract(imagem, log);
+  await processarImagemDocumentoTesseract(imagem, log, { imagemJaRecortada });
 }
 
 async function processarImagemDocumentoAlsenet(imagem, log) {
@@ -856,13 +856,13 @@ function ficheiroParaDataUrl(ficheiro) {
   });
 }
 
-async function processarImagemDocumentoTesseract(imagem, log) {
+async function processarImagemDocumentoTesseract(imagem, log, opcoes = {}) {
   try {
     adicionarLogMrz(log, "Fallback OCR", "A iniciar OCR local com Tesseract.");
     atualizarProgressoMrz(12);
     atualizarEstadoMrz("");
     const worker = await obterWorkerMrz();
-    const tentativas = await prepararTentativasMrz(imagem, log);
+    const tentativas = await prepararTentativasMrz(imagem, log, opcoes);
     adicionarLogMrz(log, "Fallback OCR", `${tentativas.length} preparacoes/crops gerados.`);
     let texto = "";
     let dados = null;
@@ -1014,7 +1014,12 @@ function paisMrzOuValor(valor) {
   return codigo.length === 3 ? paisMrzParaNome(codigo) || texto : texto;
 }
 
-async function prepararTentativasMrz(imagem, log) {
+async function prepararTentativasMrz(imagem, log, opcoes = {}) {
+  if (opcoes.imagemJaRecortada) {
+    adicionarLogMrz(log, "Deteccao MRZ", "Imagem ja recortada pela moldura/crop manual; sem procura adicional.");
+    return prepararTentativasMrzRecortada(imagem);
+  }
+
   const cropDetectado = await detectarZonaMrz(imagem);
   const tentativasDetectadas = [];
 
@@ -1126,6 +1131,38 @@ async function prepararTentativasMrz(imagem, log) {
     linhaMrz,
     linhaMrzBaixa,
     zonaInferior
+  ];
+}
+
+async function prepararTentativasMrzRecortada(imagem) {
+  const base = {
+    x: 0,
+    width: 1,
+    y: 0,
+    height: 1,
+    maxWidth: 2200
+  };
+
+  return [
+    await prepararImagemMrz(imagem, {
+      nome: "MRZ recortada cinzento",
+      ...base,
+      threshold: null,
+      contrast: 1.6,
+      sharpen: 0.65
+    }),
+    await prepararImagemMrz(imagem, {
+      nome: "MRZ recortada contraste",
+      ...base,
+      threshold: 132,
+      contrast: 1.45
+    }),
+    await prepararImagemMrz(imagem, {
+      nome: "MRZ recortada suave",
+      ...base,
+      threshold: 120,
+      contrast: 1.2
+    })
   ];
 }
 
