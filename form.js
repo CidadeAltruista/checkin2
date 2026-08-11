@@ -294,10 +294,20 @@ async function iniciarCameraDocumento() {
     await prepararCameraDocumento(mrzStream);
     atualizarBotaoTrocarCamera();
     atualizarEstadoMrz("");
+    focarCameraDocumento();
   } catch (error) {
     console.warn("Erro ao abrir camera:", error);
     mostrarErroMrz();
   }
+}
+
+function focarCameraDocumento() {
+  const camera = document.getElementById("mrz-camera");
+  if (!camera || camera.hidden) return;
+
+  window.requestAnimationFrame(() => {
+    camera.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 }
 
 function obterConstraintsCameraDocumento(deviceId = "") {
@@ -421,6 +431,7 @@ async function trocarCameraDocumento() {
     await prepararCameraDocumento(mrzStream);
     atualizarBotaoTrocarCamera();
     atualizarEstadoMrz("");
+    focarCameraDocumento();
   } catch (error) {
     console.warn("Erro ao trocar camera:", error);
     mostrarErroMrz();
@@ -438,18 +449,19 @@ function capturarFotoDocumento() {
   const video = document.getElementById("mrz-video");
   const canvas = document.getElementById("mrz-canvas");
 
-  if (!video || !canvas || !video.videoWidth) {
+  if (!video || !canvas || !video.videoWidth || !video.clientWidth || !video.clientHeight) {
     mostrarErroMrz();
     return;
   }
 
-  const crop = calcularCropGuiaMrz(video.videoWidth, video.videoHeight);
+  const viewport = calcularViewportVideoCover(video);
+  const crop = calcularCropGuiaMrz(viewport.width, viewport.height);
   canvas.width = crop.width;
   canvas.height = crop.height;
   canvas.getContext("2d").drawImage(
     video,
-    crop.x,
-    crop.y,
+    viewport.x + crop.x,
+    viewport.y + crop.y,
     crop.width,
     crop.height,
     0,
@@ -461,6 +473,29 @@ function capturarFotoDocumento() {
   canvas.toBlob(blob => {
     if (blob) processarImagemDocumento(blob);
   }, "image/jpeg", 0.92);
+}
+
+function calcularViewportVideoCover(video) {
+  const videoRatio = video.videoWidth / video.videoHeight;
+  const boxRatio = video.clientWidth / video.clientHeight;
+
+  if (videoRatio > boxRatio) {
+    const width = Math.round(video.videoHeight * boxRatio);
+    return {
+      x: Math.round((video.videoWidth - width) / 2),
+      y: 0,
+      width,
+      height: video.videoHeight
+    };
+  }
+
+  const height = Math.round(video.videoWidth / boxRatio);
+  return {
+    x: 0,
+    y: Math.round((video.videoHeight - height) / 2),
+    width: video.videoWidth,
+    height
+  };
 }
 
 function calcularCropGuiaMrz(width, height) {
