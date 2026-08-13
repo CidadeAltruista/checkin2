@@ -2217,10 +2217,12 @@ function mostrarPaginaObrigado() {
   const form = document.getElementById("checkinForm");
   const successScreen = document.getElementById("success-screen");
   const scanEntry = document.querySelector(".scan-entry");
+  const mrzAlert = document.getElementById("mrz-form-alert");
 
   if (form) form.hidden = true;
   if (successScreen) successScreen.hidden = false;
   if (scanEntry) scanEntry.hidden = true;
+  if (mrzAlert) mrzAlert.hidden = true;
 
   fecharLeitorDocumento();
   window.scrollTo({ top: 0, behavior: "smooth" });
