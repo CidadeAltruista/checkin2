@@ -558,10 +558,20 @@ function atualizarEstadoMrz(mensagem) {
 function mostrarErroMrz() {
   const status = document.getElementById("mrz-status");
   if (!status) return;
-  status.textContent = (traducoes[linguaAtual] || traducoes.pt).leituraFalhou;
+  const t = traducoes[linguaAtual] || traducoes.pt;
+  status.innerHTML = t.leituraFalhouHtml || escaparHtmlLocal(t.leituraFalhou || "").replace(/\n/g, "<br>");
   status.hidden = false;
   status.classList.remove("is-info");
   status.classList.add("is-error");
+}
+
+function escaparHtmlLocal(valor) {
+  return String(valor == null ? "" : valor)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function mostrarFalhaLeituraMrz(opcoes = {}) {
