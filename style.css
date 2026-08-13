@@ -37,22 +37,6 @@ body {
     linear-gradient(180deg, #F8EBCF 0%, var(--sand) 42%, #EDD29D 100%);
 }
 
-body::after {
-  content: "";
-  position: fixed;
-  right: max(18px, 7vw);
-  bottom: 28px;
-  width: clamp(220px, 28vw, 420px);
-  aspect-ratio: 1 / 1;
-  background-image: url("logotipo.png");
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: contain;
-  opacity: 0.1;
-  pointer-events: none;
-  z-index: 0;
-}
-
 body > * {
   position: relative;
   z-index: 1;
@@ -737,15 +721,6 @@ select {
 @media (max-width: 720px) {
   body {
     padding: 18px 12px 32px;
-  }
-
-  body::after {
-    left: 50%;
-    right: auto;
-    bottom: 12px;
-    width: 72vw;
-    transform: translateX(-50%);
-    opacity: 0.08;
   }
 
   #cabecalho-info {
