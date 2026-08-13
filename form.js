@@ -289,6 +289,11 @@ function esconderInstrucoesMrz() {
   if (instructions) instructions.hidden = true;
 }
 
+function mostrarInstrucoesMrz() {
+  const instructions = document.querySelector("#mrz-modal .mrz-instructions");
+  if (instructions) instructions.hidden = false;
+}
+
 async function iniciarCameraDocumento() {
   const camera = document.getElementById("mrz-camera");
   const video = document.getElementById("mrz-video");
@@ -562,6 +567,7 @@ function mostrarErroMrz() {
 function mostrarFalhaLeituraMrz(opcoes = {}) {
   const { mostrarRecorte = false } = opcoes;
   atualizarProgressoMrz(100);
+  mostrarInstrucoesMrz();
   if (mostrarRecorte) mostrarRecorteManualMrz();
   mostrarErroMrz();
 }

@@ -473,13 +473,17 @@ async function detectTwoPhaseOcrbRoi(img) {
       "Timeout OCR-B ao validar linha candidata."
     );
     const text = normalizeCandidateMrzText(ocr?.data?.text || "");
-    if (looksLikeMrzLine(text)) {
-      validated.push({ ...candidate, roi, text, score: candidate.score + text.length * 12 + (text.includes("<<") ? 650 : 0) });
+    const validationScore = mrzLineValidationScore(text);
+    if (validationScore > 0) {
+      validated.push({ ...candidate, roi, text, score: candidate.score + text.length * 12 + validationScore });
     }
   }
 
   const sequence = chooseValidatedMrzSequence(validated, img);
   if (!sequence.length) {
+    const passportFallback = await detectPassportBottomOcrFallback(img, worker, timeoutMs);
+    if (passportFallback) return passportFallback;
+
     const fallback = detectBottomTextBandRoi(img);
     return {
       ...fallback,
@@ -495,6 +499,35 @@ async function detectTwoPhaseOcrbRoi(img) {
     score: sum(sequence.map(line => line.score)) + sequence.length * 1800,
     lineCount: sequence.length,
     warning: `OCR-B confirmou ${sequence.length} linha(s) MRZ em ${candidates.length} candidato(s).`
+  };
+}
+
+async function detectPassportBottomOcrFallback(img, worker, timeoutMs) {
+  const rois = [
+    { x: 0, y: img.naturalHeight * 0.66, w: img.naturalWidth, h: img.naturalHeight * 0.28 },
+    { x: 0, y: img.naturalHeight * 0.58, w: img.naturalWidth, h: img.naturalHeight * 0.38 },
+    { x: 0, y: img.naturalHeight * 0.72, w: img.naturalWidth, h: img.naturalHeight * 0.22 }
+  ].map(roi => clampPixelRoi(roi, img));
+
+  let best = null;
+  for (const roi of rois) {
+    const blob = await cropRoiToBlob(img, roi, { targetWidth: 1600, grayscale: true, sharpen: true });
+    const ocr = await withTimeout(
+      worker.recognize(blob),
+      timeoutMs,
+      "Timeout OCR-B ao validar fallback inferior de passaporte."
+    );
+    const text = normalizeCandidateMrzText(ocr?.data?.text || "");
+    const score = mrzBlockValidationScore(text);
+    if (score > (best?.score || 0)) best = { roi, score, text };
+  }
+
+  if (!best) return null;
+  return {
+    roi: best.roi,
+    score: best.score,
+    lineCount: 2,
+    warning: "Fallback TD3/passaporte validado por OCR-B na faixa inferior larga."
   };
 }
 
@@ -1224,10 +1257,55 @@ function normalizeCandidateMrzText(text) {
 }
 
 function looksLikeMrzLine(text) {
-  if (!text || text.length < 20) return false;
+  return mrzLineValidationScore(text) > 0;
+}
+
+function mrzBlockValidationScore(text) {
+  const lines = splitLikelyMrzBlockLines(text);
+  const hasPassportLine1 = lines.some(line => mrzLinePassportType(line) === "td3-line1");
+  const hasPassportLine2 = lines.some(line => mrzLinePassportType(line) === "td3-line2");
+  if (hasPassportLine1 && hasPassportLine2) return 5200 + text.length * 8;
+  if (hasPassportLine2) return 2800 + text.length * 5;
+  return 0;
+}
+
+function splitLikelyMrzBlockLines(text) {
+  const normalized = String(text || "");
+  const lines = new Set(normalized.match(/[A-Z0-9<]{35,}/g) || []);
+  for (let i = 0; i <= normalized.length - 44; i += 44) {
+    const line = normalized.slice(i, i + 44);
+    if (line.length >= 35) lines.add(line);
+  }
+  for (let start = 0; start < normalized.length; start++) {
+    for (let size = 35; size <= 44 && start + size <= normalized.length; size++) {
+      const candidate = normalized.slice(start, start + size);
+      if (mrzLinePassportType(candidate)) lines.add(candidate);
+    }
+  }
+  return [...lines];
+}
+
+function mrzLineValidationScore(text) {
+  if (!text || text.length < 20) return 0;
   const fillerCount = (text.match(/</g) || []).length;
-  if (text.includes("<<")) return true;
-  return fillerCount >= 3 && /[A-Z0-9]{4,}/.test(text);
+  const type = mrzLinePassportType(text);
+
+  if (text.includes("<<")) return 650;
+  if (type === "td3-line1") return 520;
+  if (type === "td3-line2") return 520;
+  if (fillerCount >= 3 && /[A-Z0-9]{4,}/.test(text)) return 240;
+  return 0;
+}
+
+function mrzLinePassportType(text) {
+  const line = String(text || "");
+  const passportLine1 = /^P[A-Z<][A-Z0-9<]{3}[A-Z0-9<]{20,}$/.test(line);
+  if (passportLine1) return "td3-line1";
+
+  const passportLine2 = /^[A-Z0-9<]{9}[0-9<][A-Z0-9]{3}[0-9OQDILTZSBG]{6}[0-9<][MF<][0-9OQDILTZSBG]{6}[0-9<][A-Z0-9<]*$/.test(line);
+  if (passportLine2 && line.length >= 35) return "td3-line2";
+
+  return "";
 }
 
 function smoothArray(values, radius) {
