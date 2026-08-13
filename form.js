@@ -18,7 +18,7 @@ const MRZ_FIELD_IDS = [
   "id-number-input",
   "country-residence-input"
 ];
-const MRZ_SHOW_DEBUG_LOG = false;
+const MRZ_SHOW_DEBUG_LOG = true;
 
 function selecionarLingua(lang) {
   linguaAtual = lang;
@@ -469,15 +469,13 @@ function atualizarBotaoTrocarCamera() {
 
 function capturarFotoDocumento() {
   const video = document.getElementById("mrz-video");
-  const canvas = document.getElementById("mrz-canvas");
 
-  if (!video || !canvas || !video.videoWidth || !video.clientWidth || !video.clientHeight) {
+  if (!video || !video.videoWidth || !video.clientWidth || !video.clientHeight) {
     mostrarErroMrz();
     return;
   }
 
   const viewport = calcularViewportVideoCover(video);
-  const crop = calcularCropGuiaMrz(viewport.width, viewport.height);
   const fullCanvas = document.createElement("canvas");
   fullCanvas.width = viewport.width;
   fullCanvas.height = viewport.height;
@@ -493,29 +491,12 @@ function capturarFotoDocumento() {
     viewport.height
   );
 
-  canvas.width = crop.width;
-  canvas.height = crop.height;
-  canvas.getContext("2d").drawImage(
-    video,
-    viewport.x + crop.x,
-    viewport.y + crop.y,
-    crop.width,
-    crop.height,
-    0,
-    0,
-    crop.width,
-    crop.height
-  );
   pararCameraDocumento();
   esconderInstrucoesMrz();
 
-  Promise.all([
-    canvasToBlobMrz(canvas, "image/jpeg", 0.92),
-    canvasToBlobMrz(fullCanvas, "image/jpeg", 0.92)
-  ]).then(([cropBlob, fullBlob]) => {
-    cropBlob.name = "captura-camera-recorte.jpg";
+  canvasToBlobMrz(fullCanvas, "image/jpeg", 0.92).then(fullBlob => {
     fullBlob.name = "captura-camera.jpg";
-    processarImagemCameraDocumento(cropBlob, fullBlob);
+    processarImagemCameraDocumento(fullBlob);
   }).catch(error => {
     console.warn("Erro ao capturar foto:", error);
     mostrarFalhaLeituraMrz();
@@ -678,28 +659,14 @@ async function processarImagemGaleriaDocumento(imagem) {
   });
 }
 
-async function processarImagemCameraDocumento(recortePreview, imagemCompleta) {
+async function processarImagemCameraDocumento(imagem) {
   esconderInstrucoesMrz();
   focarTopoLeitorDocumento();
-  const primeiraTentativa = await processarImagemDocumento(recortePreview, {
+  return processarImagemDocumento(imagem, {
     guardarOriginal: true,
-    imagemOriginalLog: imagemCompleta,
-    imagemLeituraLog: recortePreview,
-    imagemJaRecortada: true,
-    origem: "camera-preview",
-    silenciosoAoFalhar: true
-  });
-  if (primeiraTentativa) return true;
-
-  const recorteAutomatico = await criarBlobCropAutomaticoMrz(imagemCompleta);
-  const imagemLeitura = recorteAutomatico || imagemCompleta;
-  if (recorteAutomatico) recorteAutomatico.name = "camera-recorte-auto-mrz.jpg";
-  return processarImagemDocumento(imagemLeitura, {
-    guardarOriginal: true,
-    imagemOriginalLog: imagemCompleta,
-    imagemLeituraLog: imagemLeitura,
-    imagemJaRecortada: Boolean(recorteAutomatico),
-    origem: "camera-auto"
+    imagemOriginalLog: imagem,
+    imagemLeituraLog: imagem,
+    origem: "camera"
   });
 }
 
