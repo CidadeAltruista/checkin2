@@ -18,6 +18,7 @@ const MRZ_FIELD_IDS = [
   "id-number-input",
   "country-residence-input"
 ];
+const MRZ_SHOW_DEBUG_LOG = false;
 
 function selecionarLingua(lang) {
   linguaAtual = lang;
@@ -322,12 +323,20 @@ function focarCameraDocumento() {
 
 function focarTopoLeitorDocumento() {
   const dialog = document.querySelector("#mrz-modal .mrz-dialog");
+  const rolar = () => {
+    if (dialog) dialog.scrollTop = 0;
+    window.scrollTo(0, 0);
+  };
+
+  rolar();
+  window.requestAnimationFrame(rolar);
+  window.setTimeout(rolar, 60);
+
   if (dialog) {
-    dialog.scrollTo({ top: 0, behavior: "smooth" });
     return;
   }
 
-  document.getElementById("mrz-modal")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  document.getElementById("mrz-modal")?.scrollIntoView({ block: "start" });
 }
 
 function obterConstraintsCameraDocumento(deviceId = "") {
@@ -1591,10 +1600,18 @@ function mostrarTextoMrz(texto, dados, log) {
   const conteudo = dados
     ? `MRZ detectada:\n${rawLines.join("\n")}`
     : `Texto encontrado:\n${texto.trim()}`;
+  if (!MRZ_SHOW_DEBUG_LOG) {
+    document.querySelector(".mrz-log-images")?.remove();
+    result.hidden = true;
+    result.textContent = "";
+    console.debug(`${formatarLogMrz(log)}${conteudo}`);
+    return;
+  }
+
   result.textContent = `${formatarLogMrz(log)}${conteudo}`;
   result.hidden = false;
   mostrarImagensLogMrz(log);
-  console.debug(result.textContent);
+  console.debug(`${formatarLogMrz(log)}${conteudo}`);
 }
 
 function mostrarImagensLogMrz(log) {
@@ -1619,6 +1636,7 @@ function mostrarImagensLogMrz(log) {
 }
 
 async function adicionarImagensLogMrz(log, imagemInteira, imagemLeitura) {
+  if (!MRZ_SHOW_DEBUG_LOG) return;
   const t = traducoes[linguaAtual] || traducoes.pt;
   if (imagemInteira) {
     log.push({
