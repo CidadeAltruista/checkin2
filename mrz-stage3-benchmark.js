@@ -750,7 +750,7 @@ function addEnsembleResult(testCase) {
 function chooseTrustedEnsembleResult(results) {
   const trusted = results
     .map(result => ({ result, text: normalizeMrzText(result.text), trust: calculateMrzTrust(result.text) }))
-    .filter(item => item.text && item.trust.checksOk && item.trust.countryOk);
+    .filter(item => item.text && isAcceptableMrzText(item.text));
 
   if (!trusted.length) return null;
 
@@ -913,6 +913,73 @@ function calculateMrzTrust(text) {
     countryOk,
     label: `${checksOk ? "checks OK" : "checks falham"}${countryOk ? "" : ", pais?"}`
   };
+}
+
+function isAcceptableMrzResult(result) {
+  return Boolean(result && !result.error && isAcceptableMrzText(result.text));
+}
+
+function isAcceptableMrzText(text) {
+  const candidate = normalizeCandidateMrz(text);
+  if (!candidate) return false;
+
+  if (candidate.format === "FRID") {
+    return isFrenchNationalIdLines(candidate.lines) && hasSaneExtractedFields(parseMrzFields(candidate.text), { requireExpiry: false });
+  }
+
+  if (!candidate.valid) return false;
+  return hasSaneExtractedFields(parseMrzFields(candidate.text), { requireExpiry: candidate.format !== "FRID" });
+}
+
+function hasStrictCountryCodes(candidate) {
+  if (candidate.format === "TD1") {
+    return isStrictCountryCode(candidate.lines[0].slice(2, 5)) && isStrictCountryCode(candidate.lines[1].slice(15, 18));
+  }
+  if (candidate.format === "TD2" || candidate.format === "TD3") {
+    return isStrictCountryCode(candidate.lines[0].slice(2, 5)) && isStrictCountryCode(candidate.lines[1].slice(10, 13));
+  }
+  return false;
+}
+
+function isStrictCountryCode(code) {
+  const value = String(code || "").replace(/</g, "");
+  return value.length > 0 && ICAO_COUNTRY_CODES.has(value);
+}
+
+function hasSaneExtractedFields(fields, options = {}) {
+  if (!fields) return false;
+  const documentNumber = String(fields.numeroDocumento || "").replace(/\s/g, "");
+  const documentOk = /^[A-Z0-9]{5,20}$/.test(documentNumber);
+  const nameOk = Boolean(fields.primeiroNome || fields.ultimoNome);
+  const birthOk = isSaneDisplayDate(fields.dataNascimento, "birth");
+  const expiryOk = options.requireExpiry === false || isSaneDisplayDate(fields.dataValidade, "expiry");
+  const issuerOk = Boolean(fields.paisEmissor);
+  const nationalityOk = Boolean(fields.nacionalidade);
+
+  if (!documentOk || !birthOk || !nameOk) return false;
+
+  const score =
+    (documentOk ? 2 : 0) +
+    (birthOk ? 2 : 0) +
+    (nameOk ? 1 : 0) +
+    (expiryOk ? 1 : 0) +
+    (issuerOk ? 0.5 : 0) +
+    (nationalityOk ? 0.5 : 0);
+
+  return score >= 5;
+}
+
+function isSaneDisplayDate(value, mode) {
+  const match = String(value || "").match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return false;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return false;
+  const currentYear = new Date().getFullYear();
+  if (mode === "birth") return year >= 1900 && year <= currentYear;
+  return year >= currentYear - 20 && year <= currentYear + 30;
 }
 
 function sortResults(testCase) {
@@ -2045,7 +2112,7 @@ function renderCases() {
             ${renderFinalStatus(finalResult)}
           </div>
         </div>
-        ${fields ? renderExtractedFields(fields, finalResult) : `<p class="muted">Ainda sem leitura.</p>`}
+        ${fields ? renderExtractedFields(fields, finalResult) : renderRejectedReading(testCase)}
         ${renderPipelineDetails(testCase)}
       </article>
     `;
@@ -2063,6 +2130,11 @@ function renderFinalStatus(result) {
       <span class="metric">Tempo <strong>${result.ms} ms</strong></span>
     </div>
   `;
+}
+
+function renderRejectedReading(testCase) {
+  if (!testCase.results.length) return `<p class="muted">Ainda sem leitura.</p>`;
+  return `<div class="error-box">Leitura rejeitada: nenhum resultado passou a validação forte de MRZ.</div>`;
 }
 
 function renderExtractedFields(fields, result) {
@@ -2126,8 +2198,11 @@ function renderPipelineDetails(testCase) {
 }
 
 function getFinalResult(testCase) {
-  return testCase.results.find(result => result.pipelineId === ENSEMBLE_PIPELINE_ID)
-    || [...testCase.results].sort(compareResults)[0]
+  const ordered = [
+    testCase.results.find(result => result.pipelineId === ENSEMBLE_PIPELINE_ID),
+    ...[...testCase.results].filter(result => result.pipelineId !== ENSEMBLE_PIPELINE_ID).sort(compareResults)
+  ].filter(Boolean);
+  return ordered.find(isAcceptableMrzResult)
     || null;
 }
 
@@ -2294,8 +2369,8 @@ function parseNameLine(line) {
   const [surname = "", given = ""] = String(line || "").split("<<");
   const surnames = surname.split("<").filter(Boolean);
   const givenNames = given.split("<").filter(Boolean);
-  const primeiroNome = titleCaseMrz(givenNames[0] || "");
-  const ultimoNome = titleCaseMrz(surnames[0] || "");
+  const primeiroNome = titleCaseMrz(givenNames.join(" "));
+  const ultimoNome = titleCaseMrz(surnames.join(" "));
   return {
     primeiroNome,
     ultimoNome,
@@ -2310,7 +2385,14 @@ function countryNameFromMrzCode(code) {
 function titleCaseMrz(value) {
   return String(value || "")
     .toLowerCase()
-    .replace(/(^|\s|-)([a-z])/g, (_, sep, char) => sep + char.toUpperCase());
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(word => word.split("-").map(capitalizeMrzWord).join("-"))
+    .join(" ");
+}
+
+function capitalizeMrzWord(word) {
+  return word ? word[0].toUpperCase() + word.slice(1) : "";
 }
 
 function cleanMrzValue(value) {

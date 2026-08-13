@@ -18,7 +18,7 @@ const MRZ_FIELD_IDS = [
   "id-number-input",
   "country-residence-input"
 ];
-const MRZ_SHOW_DEBUG_LOG = true;
+const MRZ_SHOW_DEBUG_LOG = false;
 
 function selecionarLingua(lang) {
   linguaAtual = lang;
@@ -2133,7 +2133,28 @@ function preencherCampoMrz(id, valor) {
 
 function definirOrigemIdDocumento(origem) {
   const campoOrigem = document.getElementById("id-number-source");
-  if (campoOrigem) campoOrigem.value = origem || "";
+  if (campoOrigem) campoOrigem.value = normalizarOrigemIdDocumento(origem);
+}
+
+function normalizarOrigemIdDocumento(origem) {
+  const valor = String(origem || "").trim().toLowerCase();
+  if (valor === "mrz" || valor.startsWith("mrz /") || valor.includes("leitura autom")) return "mrz";
+  if (valor === "edited" || valor.includes("editado") || valor.includes("edited")) return "edited";
+  if (valor === "manual" || valor.includes("manual")) return "manual";
+  return "";
+}
+
+function textoOrigemIdDocumento(origem) {
+  switch (normalizarOrigemIdDocumento(origem)) {
+    case "mrz":
+      return "MRZ / leitura automática";
+    case "edited":
+      return "MRZ, editado pelo hóspede";
+    case "manual":
+      return "Introduzido manualmente";
+    default:
+      return "";
+  }
 }
 
 function monitorizarOrigemIdDocumento() {
@@ -2143,7 +2164,7 @@ function monitorizarOrigemIdDocumento() {
 
   campo.addEventListener("input", () => {
     if (window.__mrzPreenchendoCampos) return;
-    campoOrigem.value = campoOrigem.value === "mrz" ? "edited" : "manual";
+    campoOrigem.value = normalizarOrigemIdDocumento(campoOrigem.value) === "mrz" ? "edited" : "manual";
   });
 }
 
@@ -2403,9 +2424,13 @@ function validarFormulario(e) {
     if (idNumberInput.value.trim() && campoOrigemId && !campoOrigemId.value) {
       campoOrigemId.value = "manual";
     }
+    const origemIdNormalizada = normalizarOrigemIdDocumento(campoOrigemId?.value || "");
+    if (campoOrigemId) campoOrigemId.value = origemIdNormalizada;
     idNumberInput.value = idNumberInput.value.trim().replace(/\s+/g, "").toUpperCase();
     data.set("idNumber", idNumberInput.value);
-    data.set("idNumberSource", campoOrigemId?.value || "");
+    data.set("idNumberSource", origemIdNormalizada);
+    data.set("origemIdRaw", origemIdNormalizada);
+    data.set("origemIdTexto", textoOrigemIdDocumento(origemIdNormalizada));
   }
 
   data.append("token", "CHECKIN2024");
