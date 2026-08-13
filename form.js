@@ -320,6 +320,16 @@ function focarCameraDocumento() {
   });
 }
 
+function focarTopoLeitorDocumento() {
+  const dialog = document.querySelector("#mrz-modal .mrz-dialog");
+  if (dialog) {
+    dialog.scrollTo({ top: 0, behavior: "smooth" });
+    return;
+  }
+
+  document.getElementById("mrz-modal")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function obterConstraintsCameraDocumento(deviceId = "") {
   const baseConstraints = {
     width: { ideal: 1920 },
@@ -650,6 +660,7 @@ async function processarRecorteManualMrz() {
 
 async function processarImagemGaleriaDocumento(imagem) {
   esconderInstrucoesMrz();
+  focarTopoLeitorDocumento();
   return processarImagemDocumento(imagem, {
     guardarOriginal: true,
     imagemOriginalLog: imagem,
@@ -660,6 +671,7 @@ async function processarImagemGaleriaDocumento(imagem) {
 
 async function processarImagemCameraDocumento(recortePreview, imagemCompleta) {
   esconderInstrucoesMrz();
+  focarTopoLeitorDocumento();
   const primeiraTentativa = await processarImagemDocumento(recortePreview, {
     guardarOriginal: true,
     imagemOriginalLog: imagemCompleta,
