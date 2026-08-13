@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MRZ ROI Benchmark</title>
+  <link rel="stylesheet" href="mrz-benchmark.css">
+</head>
+<body>
+  <main class="bench-shell">
+    <header class="bench-header">
+      <div>
+        <h1>MRZ ROI Benchmark</h1>
+        <p>Laboratorio local para comparar metodos de deteção automatica da zona MRZ.</p>
+      </div>
+      <button type="button" id="run-all">Detetar zonas</button>
+    </header>
+
+    <section class="bench-panel bench-inputs">
+      <div class="field">
+        <label for="image-input">Imagens de teste</label>
+        <input id="image-input" type="file" accept="image/*" multiple>
+      </div>
+      <div class="ocrb-config field-wide">
+        <div class="field">
+          <label for="roi-ocr-lang">Modelo OCR-B/MRZ</label>
+          <input id="roi-ocr-lang" type="text" value="ocrb" placeholder="Ex: ocrb, mrz">
+        </div>
+        <div class="field">
+          <label for="roi-ocr-path">Pasta tessdata</label>
+          <input id="roi-ocr-path" type="text" value="./tessdata" placeholder="Ex: ./tessdata">
+        </div>
+        <div class="field">
+          <label for="roi-ocr-timeout">Timeout OCR por linha (s)</label>
+          <input id="roi-ocr-timeout" type="number" min="2" max="60" value="8">
+        </div>
+      </div>
+      <div class="bench-actions">
+        <button type="button" id="clear-all" class="secondary">Limpar</button>
+        <button type="button" id="clear-ratings" class="secondary">Limpar avaliações</button>
+      </div>
+    </section>
+
+    <section class="bench-panel">
+      <div class="section-title">
+        <h2>Metodos</h2>
+        <span id="method-count"></span>
+      </div>
+      <div id="method-list" class="pipeline-list"></div>
+    </section>
+
+    <section class="bench-panel">
+      <div class="section-title">
+        <h2>Resumo por metodo</h2>
+        <span id="summary-count">Sem avaliações.</span>
+      </div>
+      <div id="summary-table" class="summary-table"></div>
+    </section>
+
+    <section class="bench-panel">
+      <div class="section-title">
+        <h2>Resultados</h2>
+        <span id="status">Sem imagens carregadas.</span>
+      </div>
+      <div id="cases" class="cases"></div>
+    </section>
+  </main>
+
+  <script src="mrz-roi-benchmark.js?v=6"></script>
+</body>
+</html>

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MRZ OCR Benchmark</title>
+  <link rel="stylesheet" href="mrz-benchmark.css">
+</head>
+<body>
+  <main class="bench-shell">
+    <header class="bench-header">
+      <div>
+        <h1>MRZ OCR Benchmark</h1>
+        <p>Laboratorio local para comparar OCR, filtros, ROI, heuristicas e erros contra ground truth.</p>
+      </div>
+      <button type="button" id="run-all">Executar testes</button>
+    </header>
+
+    <section class="bench-panel bench-inputs">
+      <div class="field">
+        <label for="image-input">Imagens de teste</label>
+        <input id="image-input" type="file" accept="image/*" multiple>
+      </div>
+      <div class="field">
+        <label for="truth-file">Ground truth JSON/TXT</label>
+        <input id="truth-file" type="file" accept=".json,.txt,text/plain,application/json">
+      </div>
+      <div class="field field-wide">
+        <label for="global-truth">Ground truth em lote</label>
+        <textarea id="global-truth" rows="8" placeholder="Cole blocos: nome-do-ficheiro-sem-extensao ou numero, depois as linhas MRZ, linha vazia, proximo bloco."></textarea>
+      </div>
+      <div class="ocrb-config field-wide">
+        <div class="field">
+          <label for="custom-lang">Modelo OCR-B/MRZ</label>
+          <input id="custom-lang" type="text" value="ocrb" placeholder="Ex: ocrb, mrz">
+        </div>
+        <div class="field">
+          <label for="custom-lang-path">Pasta tessdata</label>
+          <input id="custom-lang-path" type="text" value="./tessdata" placeholder="Ex: ./tessdata ou https://.../tessdata">
+        </div>
+        <div class="field">
+          <label for="custom-timeout">Timeout modelo customizado (s)</label>
+          <input id="custom-timeout" type="number" min="5" max="180" value="25">
+        </div>
+      </div>
+      <div class="bench-actions">
+        <button type="button" id="apply-truth">Aplicar ground truth</button>
+        <button type="button" id="export-rois" class="secondary">Exportar ROIs</button>
+        <button type="button" id="import-rois" class="secondary">Importar ROIs</button>
+        <button type="button" id="reset-rois" class="secondary">Limpar ROIs gravados</button>
+        <button type="button" id="clear-all" class="secondary">Limpar</button>
+        <input id="roi-file" type="file" accept=".json,application/json" hidden>
+      </div>
+    </section>
+
+    <section class="bench-panel">
+      <div class="section-title">
+        <h2>Pipelines</h2>
+        <span id="pipeline-count"></span>
+      </div>
+      <div id="pipeline-list" class="pipeline-list"></div>
+    </section>
+
+    <section class="bench-panel">
+      <div class="section-title">
+        <h2>Resumo por metodo</h2>
+        <span id="summary-count">Sem resultados.</span>
+      </div>
+      <div id="summary-table" class="summary-table"></div>
+    </section>
+
+    <section class="bench-panel">
+      <div class="section-title">
+        <h2>Resultados</h2>
+        <span id="status">Sem imagens carregadas.</span>
+      </div>
+      <div id="cases" class="cases"></div>
+    </section>
+  </main>
+
+  <script src="countries.js?v=20260813-1"></script>
+  <script src="mrz-benchmark.js?v=3"></script>
+</body>
+</html>

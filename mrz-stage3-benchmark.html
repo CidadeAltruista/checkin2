@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MRZ Etapa 3 Benchmark</title>
+  <link rel="stylesheet" href="mrz-benchmark.css">
+</head>
+<body>
+  <main class="bench-shell">
+    <header class="bench-header">
+      <div>
+        <h1>MRZ Etapa 3</h1>
+        <p>Teste completo: deteção automática da zona MRZ, leitura OCR-B/MRZ e extração dos campos finais.</p>
+      </div>
+      <button type="button" id="run-all">Executar etapa 3</button>
+    </header>
+
+    <section class="bench-panel bench-inputs">
+      <div class="field">
+        <label for="image-input">Imagens de teste</label>
+        <input id="image-input" type="file" accept="image/*" multiple>
+      </div>
+      <div class="ocrb-config field-wide">
+        <div class="field">
+          <label for="custom-lang">Modelo OCR-B/MRZ</label>
+          <input id="custom-lang" type="text" value="ocrb" placeholder="Ex: ocrb, mrz">
+        </div>
+        <div class="field">
+          <label for="custom-lang-path">Pasta tessdata</label>
+          <input id="custom-lang-path" type="text" value="./tessdata" placeholder="Ex: ./tessdata">
+        </div>
+        <div class="field">
+          <label for="custom-timeout">Timeout leitura (s)</label>
+          <input id="custom-timeout" type="number" min="5" max="180" value="25">
+        </div>
+      </div>
+      <div class="ocrb-config field-wide">
+        <div class="field">
+          <label for="roi-ocr-lang">Modelo OCR-B/MRZ da deteção</label>
+          <input id="roi-ocr-lang" type="text" value="ocrb" placeholder="Ex: ocrb, mrz">
+        </div>
+        <div class="field">
+          <label for="roi-ocr-path">Pasta tessdata da deteção</label>
+          <input id="roi-ocr-path" type="text" value="./tessdata" placeholder="Ex: ./tessdata">
+        </div>
+        <div class="field">
+          <label for="roi-ocr-timeout">Timeout deteção por linha (s)</label>
+          <input id="roi-ocr-timeout" type="number" min="2" max="60" value="8">
+        </div>
+      </div>
+      <div class="bench-actions">
+        <button type="button" id="clear-all" class="secondary">Limpar</button>
+      </div>
+    </section>
+
+    <section class="bench-panel">
+      <div class="section-title">
+        <h2>Pipelines</h2>
+        <span id="pipeline-count"></span>
+      </div>
+      <div id="pipeline-list" class="pipeline-list"></div>
+    </section>
+
+    <section class="bench-panel">
+      <div class="section-title">
+        <h2>Resumo</h2>
+        <span id="summary-count">Sem resultados.</span>
+      </div>
+      <div id="summary-table" class="summary-table"></div>
+    </section>
+
+    <section class="bench-panel">
+      <div class="section-title">
+        <h2>Resultados</h2>
+        <span id="status">Sem imagens carregadas.</span>
+      </div>
+      <div id="cases" class="cases"></div>
+    </section>
+  </main>
+
+  <script src="countries.js?v=20260813-1"></script>
+  <script src="mrz-stage3-benchmark.js?v=3"></script>
+</body>
+</html>

@@ -128,7 +128,10 @@ function atualizarTextosMrz(t) {
   });
 
   const close = document.querySelector(".mrz-close");
-  if (close) close.setAttribute("aria-label", t.fechar || "Fechar");
+  if (close) {
+    close.setAttribute("aria-label", t.fechar || "Sair");
+    close.textContent = t.fechar || "Sair";
+  }
 
   const guideImage = document.querySelector(".mrz-instructions img");
   if (guideImage) guideImage.setAttribute("alt", t.mrzImagemAlt || "Exemplo da zona MRZ no documento");
@@ -227,18 +230,20 @@ function preencherPaisesRelacionados() {
 
 function abrirLeitorDocumento() {
   const modal = document.getElementById("mrz-modal");
-  const status = document.getElementById("mrz-status");
   const result = document.getElementById("mrz-result");
   const actions = modal?.querySelector(".mrz-actions");
   const instructions = modal?.querySelector(".mrz-instructions");
 
   if (!modal) return;
+  document.getElementById("mrz-form-alert")?.setAttribute("hidden", "");
+  document.querySelector(".mrz-log-images")?.remove();
   if (actions) actions.hidden = false;
   if (instructions) instructions.hidden = false;
   modal.classList.add("is-open");
   modal.setAttribute("aria-hidden", "false");
-  if (status) status.textContent = "";
+  atualizarEstadoMrz("");
   atualizarProgressoMrz(0);
+  mostrarProgressoMrz(false);
   esconderRecorteManualMrz();
   if (result) {
     result.hidden = true;
@@ -276,6 +281,11 @@ function pararCameraDocumento(limparDispositivos = false) {
 
 function selecionarFotoDocumento() {
   document.getElementById("mrz-file-input")?.click();
+}
+
+function esconderInstrucoesMrz() {
+  const instructions = document.querySelector("#mrz-modal .mrz-instructions");
+  if (instructions) instructions.hidden = true;
 }
 
 async function iniciarCameraDocumento() {
@@ -449,6 +459,21 @@ function capturarFotoDocumento() {
 
   const viewport = calcularViewportVideoCover(video);
   const crop = calcularCropGuiaMrz(viewport.width, viewport.height);
+  const fullCanvas = document.createElement("canvas");
+  fullCanvas.width = viewport.width;
+  fullCanvas.height = viewport.height;
+  fullCanvas.getContext("2d").drawImage(
+    video,
+    viewport.x,
+    viewport.y,
+    viewport.width,
+    viewport.height,
+    0,
+    0,
+    viewport.width,
+    viewport.height
+  );
+
   canvas.width = crop.width;
   canvas.height = crop.height;
   canvas.getContext("2d").drawImage(
@@ -463,9 +488,25 @@ function capturarFotoDocumento() {
     crop.height
   );
   pararCameraDocumento();
-  canvas.toBlob(blob => {
-    if (blob) processarImagemDocumento(blob, { imagemJaRecortada: true });
-  }, "image/jpeg", 0.92);
+  esconderInstrucoesMrz();
+
+  Promise.all([
+    canvasToBlobMrz(canvas, "image/jpeg", 0.92),
+    canvasToBlobMrz(fullCanvas, "image/jpeg", 0.92)
+  ]).then(([cropBlob, fullBlob]) => {
+    cropBlob.name = "captura-camera-recorte.jpg";
+    fullBlob.name = "captura-camera.jpg";
+    processarImagemCameraDocumento(cropBlob, fullBlob);
+  }).catch(error => {
+    console.warn("Erro ao capturar foto:", error);
+    mostrarFalhaLeituraMrz();
+  });
+}
+
+function canvasToBlobMrz(canvas, type = "image/jpeg", quality = 0.92) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Nao foi possivel criar a imagem.")), type, quality);
+  });
 }
 
 function calcularViewportVideoCover(video) {
@@ -494,17 +535,19 @@ function calcularViewportVideoCover(video) {
 function calcularCropGuiaMrz(width, height) {
   return {
     x: Math.round(width * 0.06),
-    y: Math.round(height * 0.58),
+    y: Math.round(height * 0.50),
     width: Math.round(width * 0.88),
-    height: Math.round(height * 0.32)
+    height: Math.round(height * 0.44)
   };
 }
 
 function atualizarEstadoMrz(mensagem) {
   const status = document.getElementById("mrz-status");
   if (!status) return;
-  status.hidden = true;
-  status.textContent = "";
+  status.textContent = mensagem || "";
+  status.hidden = !mensagem;
+  status.classList.toggle("is-info", Boolean(mensagem));
+  status.classList.remove("is-error");
 }
 
 function mostrarErroMrz() {
@@ -512,10 +555,12 @@ function mostrarErroMrz() {
   if (!status) return;
   status.textContent = (traducoes[linguaAtual] || traducoes.pt).leituraFalhou;
   status.hidden = false;
+  status.classList.remove("is-info");
+  status.classList.add("is-error");
 }
 
 function mostrarFalhaLeituraMrz(opcoes = {}) {
-  const { mostrarRecorte = true } = opcoes;
+  const { mostrarRecorte = false } = opcoes;
   atualizarProgressoMrz(100);
   if (mostrarRecorte) mostrarRecorteManualMrz();
   mostrarErroMrz();
@@ -527,6 +572,11 @@ function atualizarProgressoMrz(percentagem) {
   const percent = document.getElementById("mrz-progress-percent");
   if (bar) bar.style.width = `${valor}%`;
   if (percent) percent.textContent = `${valor}%`;
+}
+
+function mostrarProgressoMrz(mostrar = true) {
+  const progress = document.querySelector("#mrz-modal .mrz-progress");
+  if (progress) progress.hidden = !mostrar;
 }
 
 function mostrarRecorteManualMrz() {
@@ -596,6 +646,53 @@ async function processarRecorteManualMrz() {
     console.warn("Erro ao recortar MRZ manualmente:", error);
     mostrarFalhaLeituraMrz();
   }
+}
+
+async function processarImagemGaleriaDocumento(imagem) {
+  esconderInstrucoesMrz();
+  return processarImagemDocumento(imagem, {
+    guardarOriginal: true,
+    imagemOriginalLog: imagem,
+    imagemLeituraLog: imagem,
+    origem: "galeria"
+  });
+}
+
+async function processarImagemCameraDocumento(recortePreview, imagemCompleta) {
+  esconderInstrucoesMrz();
+  const primeiraTentativa = await processarImagemDocumento(recortePreview, {
+    guardarOriginal: true,
+    imagemOriginalLog: imagemCompleta,
+    imagemLeituraLog: recortePreview,
+    imagemJaRecortada: true,
+    origem: "camera-preview",
+    silenciosoAoFalhar: true
+  });
+  if (primeiraTentativa) return true;
+
+  const recorteAutomatico = await criarBlobCropAutomaticoMrz(imagemCompleta);
+  const imagemLeitura = recorteAutomatico || imagemCompleta;
+  if (recorteAutomatico) recorteAutomatico.name = "camera-recorte-auto-mrz.jpg";
+  return processarImagemDocumento(imagemLeitura, {
+    guardarOriginal: true,
+    imagemOriginalLog: imagemCompleta,
+    imagemLeituraLog: imagemLeitura,
+    imagemJaRecortada: Boolean(recorteAutomatico),
+    origem: "camera-auto"
+  });
+}
+
+async function criarBlobCropAutomaticoMrz(imagem) {
+  const crop = await detectarZonaMrz(imagem);
+  if (!crop) return null;
+  return prepararImagemMrz(imagem, {
+    nome: "recorte automatico MRZ",
+    ...crop,
+    maxWidth: 2200,
+    threshold: null,
+    contrast: 1.25,
+    sharpen: 0.35
+  }).then(tentativa => tentativa.blob);
 }
 
 function criarBlobRecorteManualMrz() {
@@ -673,20 +770,92 @@ async function obterWorkerMrz() {
 }
 
 async function processarImagemDocumento(imagem, opcoes = {}) {
+  if (!window.MrzStage3Reader?.read) {
+    const log = criarLogMrz(imagem);
+    adicionarLogMrz(log, "Erro etapa 3", "Leitor MRZ etapa 3 nao carregado.");
+    mostrarTextoMrz("", null, log);
+    mostrarFalhaLeituraMrz();
+    return false;
+  }
+
+  return processarImagemDocumentoEtapa3(imagem, opcoes);
+
   const { guardarOriginal = true, imagemJaRecortada = false } = opcoes;
   const log = criarLogMrz(imagem);
+  document.querySelector(".mrz-log-images")?.remove();
   if (guardarOriginal) {
-    mrzImagemOriginal = imagem;
+    mrzImagemOriginal = opcoes.imagemOriginalLog || imagem;
     esconderRecorteManualMrz();
   }
+  mostrarProgressoMrz(true);
+  atualizarEstadoMrz((traducoes[linguaAtual] || traducoes.pt).leituraEmCurso || "");
   atualizarProgressoMrz(0);
+  await adicionarImagensLogMrz(log, opcoes.imagemOriginalLog || imagem, opcoes.imagemLeituraLog || imagem);
 
   if (window.MRZ_CLIENT_SCANNER === "alsenet-v2") {
     const lidoNoBrowser = await processarImagemDocumentoAlsenet(imagem, log);
-    if (lidoNoBrowser) return;
+    if (lidoNoBrowser) return true;
   }
 
-  await processarImagemDocumentoTesseract(imagem, log, { imagemJaRecortada });
+  return processarImagemDocumentoTesseract(imagem, log, { imagemJaRecortada });
+}
+
+async function processarImagemDocumentoEtapa3(imagem, opcoes = {}) {
+  const { guardarOriginal = true } = opcoes;
+  const log = criarLogMrz(imagem);
+  document.querySelector(".mrz-log-images")?.remove();
+
+  if (guardarOriginal) {
+    mrzImagemOriginal = opcoes.imagemOriginalLog || imagem;
+    esconderRecorteManualMrz();
+  }
+
+  mostrarProgressoMrz(true);
+  atualizarEstadoMrz((traducoes[linguaAtual] || traducoes.pt).leituraEmCurso || "");
+  atualizarProgressoMrz(0);
+  await adicionarImagensLogMrz(log, opcoes.imagemOriginalLog || imagem, opcoes.imagemLeituraLog || imagem);
+
+  try {
+    adicionarLogMrz(log, "Motor etapa 3", "A iniciar deteccao Duas fases: morfologia + OCR-B.");
+    adicionarLogMrz(log, "Motor etapa 3", "A leitura usa apenas o ensemble seletivo por confianca dos quatro pipelines OCR-B/MRZ.");
+    const resultado = await window.MrzStage3Reader.read(imagem, {
+      lang: "ocrb",
+      langPath: "./tessdata",
+      timeoutMs: 25000,
+      roiLang: "ocrb",
+      roiLangPath: "./tessdata",
+      roiTimeoutMs: 8000,
+      onStatus: mensagem => {
+        if (mensagem) adicionarLogMrz(log, "Etapa 3", mensagem);
+      },
+      onProgress: atualizarProgressoMrz
+    });
+
+    if (resultado.roi && resultado.imageSize) {
+      adicionarLogMrz(log, "ROI etapa 3", `x=${Math.round((resultado.roi.x / resultado.imageSize.width) * 1000) / 10}%, y=${Math.round((resultado.roi.y / resultado.imageSize.height) * 1000) / 10}%, w=${Math.round((resultado.roi.w / resultado.imageSize.width) * 1000) / 10}%, h=${Math.round((resultado.roi.h / resultado.imageSize.height) * 1000) / 10}%.`);
+    }
+    if (resultado.warning) adicionarLogMrz(log, "ROI etapa 3", resultado.warning);
+    adicionarLogMrz(log, "Ensemble", resultado.ok ? "MRZ validada pelo metodo etapa 3." : "Sem MRZ valida no metodo etapa 3.");
+    if (resultado.results?.length) {
+      adicionarLogMrz(log, "Pipelines", resultado.results.map(item => `${item.pipelineName}: ${item.trust?.label || item.error || "sem estado"}`).join(" | "));
+    }
+
+    mostrarTextoMrz(resultado.text || resultado.rawText || "", resultado.formData, log);
+
+    if (!resultado.ok || !resultado.formData) {
+      if (!opcoes.silenciosoAoFalhar) mostrarFalhaLeituraMrz();
+      return false;
+    }
+
+    finalizarLeituraMrz(resultado.text, resultado.formData, log);
+    return true;
+  } catch (error) {
+    console.warn("Erro no leitor MRZ etapa 3:", error);
+    adicionarLogMrz(log, "Erro etapa 3", error?.message || String(error));
+    mostrarTextoMrz("", null, log);
+    if (!opcoes.silenciosoAoFalhar) mostrarFalhaLeituraMrz();
+    return false;
+  }
 }
 
 async function processarImagemDocumentoAlsenet(imagem, log) {
@@ -804,6 +973,22 @@ function finalizarLeituraMrz(texto, dados, log) {
   atualizarProgressoMrz(100);
   atualizarEstadoMrz("");
   esconderRecorteManualMrz();
+  mostrarAvisoReverDadosMrz();
+  fecharLeitorDocumento();
+}
+
+function mostrarAvisoReverDadosMrz() {
+  const alerta = document.getElementById("mrz-form-alert");
+  const texto = document.getElementById("mrz-form-alert-text");
+  const t = traducoes[linguaAtual] || traducoes.pt;
+  if (!alerta) return;
+  if (texto) {
+    texto.textContent = t.mrzAvisoReverDados || t.leituraSucesso || "";
+  } else {
+    alerta.textContent = t.mrzAvisoReverDados || t.leituraSucesso || "";
+  }
+  alerta.hidden = false;
+  alerta.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 function obterWorkerAlsenet() {
@@ -884,16 +1069,18 @@ async function processarImagemDocumentoTesseract(imagem, log, opcoes = {}) {
       adicionarLogMrz(log, "Resultado", "Nenhuma MRZ local valida encontrada.");
       mostrarTextoMrz(texto, dados, log);
       mostrarFalhaLeituraMrz();
-      return;
+      return false;
     }
 
     adicionarLogMrz(log, "Resultado", "MRZ local validada e campos preenchidos.");
     finalizarLeituraMrz(texto, dados, log);
+    return true;
   } catch (error) {
     console.warn("Erro ao ler MRZ:", error);
     adicionarLogMrz(log, "Erro OCR", error?.message || String(error));
     mostrarTextoMrz("", null, log);
     mostrarFalhaLeituraMrz();
+    return false;
   }
 }
 
@@ -1378,7 +1565,8 @@ function adicionarLogMrz(log, etapa, detalhe) {
 }
 
 function formatarLogMrz(log) {
-  return log?.length ? `LOG DE LEITURA\n${log.join("\n")}\n\n` : "";
+  const linhas = (log || []).filter(item => typeof item === "string");
+  return linhas.length ? `LOG DE LEITURA\n${linhas.join("\n")}\n\n` : "";
 }
 
 function mostrarTextoMrz(texto, dados, log) {
@@ -1393,7 +1581,69 @@ function mostrarTextoMrz(texto, dados, log) {
     : `Texto encontrado:\n${texto.trim()}`;
   result.textContent = `${formatarLogMrz(log)}${conteudo}`;
   result.hidden = false;
+  mostrarImagensLogMrz(log);
   console.debug(result.textContent);
+}
+
+function mostrarImagensLogMrz(log) {
+  const result = document.getElementById("mrz-result");
+  if (!result) return;
+  document.querySelector(".mrz-log-images")?.remove();
+  const imagens = (log || []).filter(item => item && typeof item === "object" && item.type === "image");
+  if (!imagens.length) return;
+  const wrapper = document.createElement("div");
+  wrapper.className = "mrz-log-images";
+  imagens.forEach(item => {
+    const figure = document.createElement("figure");
+    const img = document.createElement("img");
+    const caption = document.createElement("figcaption");
+    img.src = item.url;
+    img.alt = item.label;
+    caption.textContent = item.label;
+    figure.append(img, caption);
+    wrapper.appendChild(figure);
+  });
+  result.insertAdjacentElement("afterend", wrapper);
+}
+
+async function adicionarImagensLogMrz(log, imagemInteira, imagemLeitura) {
+  const t = traducoes[linguaAtual] || traducoes.pt;
+  if (imagemInteira) {
+    log.push({
+      type: "image",
+      label: t.mrzLogImagemInteira || "Imagem inteira usada como referencia",
+      url: await criarPreviewImagemLogMrz(imagemInteira)
+    });
+  }
+  if (imagemLeitura) {
+    log.push({
+      type: "image",
+      label: t.mrzLogRecorteLeitura || "Recorte usado para leitura",
+      url: await criarPreviewImagemLogMrz(imagemLeitura)
+    });
+  }
+}
+
+function criarPreviewImagemLogMrz(blob) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(blob);
+    img.onload = () => {
+      const maxWidth = 520;
+      const scale = Math.min(1, maxWidth / img.naturalWidth);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL("image/jpeg", 0.82));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Nao foi possivel criar preview do log."));
+    };
+    img.src = url;
+  });
 }
 
 function extrairDadosMrz(texto, log) {
@@ -1587,13 +1837,15 @@ function parseMrzTd1Parcial(linhas, log) {
 }
 
 function extrairNumeroTd1(linha) {
-  if (linha.startsWith("I<PRT") && linha.length >= 18) {
-    const numeroBase = linha.slice(5, 13).replace(/</g, "");
-    const verificacao = (linha.slice(13, 14) + linha.slice(15, 18)).replace(/</g, "");
-    return limparCampoMrz(`${numeroBase}${verificacao}`);
-  }
+  const numeroPrincipal = limparCampoMrz(linha.slice(5, 14));
+  if (linha[14] !== "<") return numeroPrincipal;
 
-  return limparCampoMrz(linha.slice(5, 14));
+  const opcional = linha.slice(15, 30);
+  const fimUtil = opcional.search(/<+$/);
+  const util = fimUtil >= 0 ? opcional.slice(0, fimUtil) : opcional;
+  if (util.length <= 1) return numeroPrincipal;
+
+  return `${numeroPrincipal}${limparCampoMrz(util.slice(0, -1))}`;
 }
 
 function corrigirLinhasMrzTd1PorChecksum(linha1, linha2, log) {
@@ -1858,41 +2110,7 @@ function parseDataMrz(valor) {
 }
 
 function paisMrzParaNome(codigo) {
-  const alpha3ParaNome = {
-    AGO: "Angola",
-    ARG: "Argentina",
-    AUS: "Australia",
-    AUT: "Austria",
-    BEL: "Belgium",
-    BRA: "Brazil",
-    CAN: "Canada",
-    CHE: "Switzerland",
-    CHL: "Chile",
-    CHN: "China",
-    COL: "Colombia",
-    CZE: "Czech Republic",
-    DEU: "Germany",
-    DNK: "Denmark",
-    ESP: "Spain",
-    FIN: "Finland",
-    FRA: "France",
-    GBR: "United Kingdom of Great Britain and Northern Ireland",
-    IRL: "Ireland",
-    ITA: "Italy",
-    LUX: "Luxembourg",
-    MAR: "Morocco",
-    MEX: "Mexico",
-    NLD: "Netherlands",
-    NOR: "Norway",
-    POL: "Poland",
-    PRT: "Portugal",
-    ROU: "Romania",
-    SWE: "Sweden",
-    UKR: "Ukraine",
-    USA: "United States of America"
-  };
-
-  return alpha3ParaNome[codigo] || "";
+  return window.paisMrzNomeNaLista?.(codigo) || "";
 }
 
 function preencherSeVazio(id, valor) {
@@ -2235,7 +2453,7 @@ function initForm() {
 
   document.getElementById("mrz-file-input")?.addEventListener("change", event => {
     const ficheiro = event.target.files?.[0];
-    if (ficheiro) processarImagemDocumento(ficheiro);
+    if (ficheiro) processarImagemGaleriaDocumento(ficheiro);
     event.target.value = "";
   });
 

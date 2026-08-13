@@ -227,10 +227,10 @@ button:disabled {
   position: fixed;
   inset: 0;
   display: none;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 18px;
-  background: rgba(26, 26, 26, 0.46);
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0;
+  background: var(--white);
   z-index: 20;
 }
 
@@ -239,13 +239,14 @@ button:disabled {
 }
 
 .mrz-dialog {
-  width: min(100%, 640px);
-  max-height: calc(100vh - 36px);
+  width: 100%;
+  height: 100vh;
+  max-height: 100vh;
   overflow: auto;
-  border-radius: 8px;
-  border: 1px solid rgba(79, 97, 98, 0.24);
+  border-radius: 0;
+  border: 0;
   background: var(--white);
-  box-shadow: 0 26px 80px rgba(26, 26, 26, 0.28);
+  box-shadow: none;
 }
 
 .mrz-header {
@@ -276,16 +277,19 @@ button:disabled {
 }
 
 .mrz-close {
-  width: 42px;
+  min-width: 92px;
   min-height: 42px;
   flex: 0 0 auto;
-  background: transparent;
-  color: var(--teal-dark);
-  border: 1px solid rgba(79, 97, 98, 0.24);
+  padding: 0 18px;
+  background: var(--teal-dark);
+  color: var(--white);
+  border: 1px solid var(--teal-dark);
+  border-radius: 8px;
+  font-weight: 800;
 }
 
 .mrz-close:hover {
-  background: rgba(79, 97, 98, 0.08);
+  background: var(--teal);
 }
 
 .mrz-instructions {
@@ -348,8 +352,8 @@ button:disabled {
   position: absolute;
   left: 6%;
   right: 6%;
-  bottom: 10%;
-  height: 32%;
+  bottom: 6%;
+  height: 44%;
   border: 2px solid rgba(255, 255, 255, 0.92);
   border-radius: 6px;
   box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.34);
@@ -371,11 +375,23 @@ button:disabled {
 .mrz-status {
   margin: 0 20px 18px;
   padding: 10px 12px;
-  border: 1px solid rgba(179, 38, 30, 0.22);
+  border: 1px solid rgba(79, 97, 98, 0.18);
   border-radius: 6px;
+  background: #f4f6f6;
+  color: #364546;
+  font-weight: 700;
+}
+
+.mrz-status.is-error {
+  border-color: rgba(179, 38, 30, 0.22);
   background: #FFF0ED;
   color: var(--error);
-  font-weight: 700;
+}
+
+.mrz-status.is-info {
+  border-color: rgba(79, 97, 98, 0.2);
+  background: #f4f6f6;
+  color: #364546;
 }
 
 .mrz-progress {
@@ -416,6 +432,63 @@ button:disabled {
   color: #243333;
   font-size: 12px;
   line-height: 1.4;
+}
+
+.mrz-log-images {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 0 20px 20px;
+}
+
+.mrz-log-images figure {
+  margin: 0;
+  color: #364546;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mrz-log-images img {
+  display: block;
+  width: 100%;
+  max-height: 260px;
+  object-fit: contain;
+  border: 1px solid rgba(79, 97, 98, 0.18);
+  border-radius: 8px;
+  background: #111;
+}
+
+.mrz-form-alert {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid rgba(36, 100, 70, 0.24);
+  border-radius: 8px;
+  background: #eef8f2;
+  color: #244640;
+  text-align: center;
+  font-weight: 800;
+}
+
+.mrz-form-alert[hidden] {
+  display: none;
+}
+
+.mrz-form-alert-icon {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  place-items: center;
+  border-radius: 50%;
+  background: #244640;
+  color: #fff;
+  font-size: 15px;
+  line-height: 1;
+  font-weight: 900;
 }
 
 .mrz-manual-crop {
