@@ -421,7 +421,7 @@ button:disabled {
 
 .mrz-log-images {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
   margin: 0 20px 20px;
 }
@@ -436,7 +436,7 @@ button:disabled {
 .mrz-log-images img {
   display: block;
   width: 100%;
-  max-height: 260px;
+  max-height: 320px;
   object-fit: contain;
   border: 1px solid rgba(79, 97, 98, 0.18);
   border-radius: 8px;

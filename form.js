@@ -18,7 +18,7 @@ const MRZ_FIELD_IDS = [
   "id-number-input",
   "country-residence-input"
 ];
-const MRZ_SHOW_DEBUG_LOG = false;
+const MRZ_SHOW_DEBUG_LOG = true;
 
 function selecionarLingua(lang) {
   linguaAtual = lang;
@@ -481,6 +481,11 @@ function capturarFotoDocumento() {
   }
 
   const viewport = calcularViewportVideoCover(video);
+  const videoSnapshotCanvas = document.createElement("canvas");
+  videoSnapshotCanvas.width = video.videoWidth;
+  videoSnapshotCanvas.height = video.videoHeight;
+  videoSnapshotCanvas.getContext("2d").drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+
   const fullCanvas = document.createElement("canvas");
   fullCanvas.width = viewport.width;
   fullCanvas.height = viewport.height;
@@ -501,7 +506,16 @@ function capturarFotoDocumento() {
 
   canvasToBlobMrz(fullCanvas, "image/jpeg", 0.92).then(fullBlob => {
     fullBlob.name = "captura-camera.jpg";
-    processarImagemCameraDocumento(fullBlob);
+    processarImagemCameraDocumento(fullBlob, {
+      frameVideoUrl: videoSnapshotCanvas.toDataURL("image/jpeg", 0.82),
+      viewport,
+      videoSize: {
+        width: video.videoWidth,
+        height: video.videoHeight,
+        clientWidth: video.clientWidth,
+        clientHeight: video.clientHeight
+      }
+    });
   }).catch(error => {
     console.warn("Erro ao capturar foto:", error);
     mostrarFalhaLeituraMrz();
@@ -675,14 +689,15 @@ async function processarImagemGaleriaDocumento(imagem) {
   });
 }
 
-async function processarImagemCameraDocumento(imagem) {
+async function processarImagemCameraDocumento(imagem, debugCamera = {}) {
   esconderInstrucoesMrz();
   focarTopoLeitorDocumento();
   return processarImagemDocumento(imagem, {
     guardarOriginal: true,
     imagemOriginalLog: imagem,
     imagemLeituraLog: imagem,
-    origem: "camera"
+    origem: "camera",
+    debugCamera
   });
 }
 
@@ -809,6 +824,8 @@ async function processarImagemDocumentoEtapa3(imagem, opcoes = {}) {
   const log = criarLogMrz(imagem);
   document.querySelector(".mrz-log-images")?.remove();
 
+  adicionarDebugEntradaMrz(log, imagem, opcoes);
+
   if (guardarOriginal) {
     mrzImagemOriginal = opcoes.imagemOriginalLog || imagem;
     esconderRecorteManualMrz();
@@ -843,6 +860,7 @@ async function processarImagemDocumentoEtapa3(imagem, opcoes = {}) {
     if (resultado.results?.length) {
       adicionarLogMrz(log, "Pipelines", resultado.results.map(item => `${item.pipelineName}: ${item.trust?.label || item.error || "sem estado"}`).join(" | "));
     }
+    adicionarDebugResultadoEtapa3Mrz(log, resultado);
 
     mostrarTextoMrz(resultado.text || resultado.rawText || "", resultado.formData, log);
 
@@ -973,12 +991,12 @@ function dividirLinhaMrzColada(linha) {
 function finalizarLeituraMrz(texto, dados, log) {
   preencherCamposComMrz(dados);
   adicionarLogMrz(log, "Preenchimento", "Campos substituidos no formulario.");
+  adicionarLogMrz(log, "Debug", "Popup mantido aberto apos sucesso para inspecao das imagens e logs.");
   mostrarTextoMrz(texto, dados, log);
   atualizarProgressoMrz(100);
   atualizarEstadoMrz("");
   esconderRecorteManualMrz();
   mostrarAvisoReverDadosMrz();
-  fecharLeitorDocumento();
 }
 
 function mostrarAvisoReverDadosMrz() {
@@ -1568,6 +1586,40 @@ function adicionarLogMrz(log, etapa, detalhe) {
   log.push(`[${etapa}] ${detalhe}`);
 }
 
+function adicionarImagemLogMrz(log, label, url, meta = "") {
+  if (!MRZ_SHOW_DEBUG_LOG || !log || !url) return;
+  log.push({
+    type: "image",
+    label: meta ? `${label} (${meta})` : label,
+    url
+  });
+}
+
+function adicionarDebugEntradaMrz(log, imagem, opcoes = {}) {
+  if (!MRZ_SHOW_DEBUG_LOG) return;
+  adicionarLogMrz(log, "Origem", opcoes.origem || "desconhecida");
+
+  if (opcoes.debugCamera?.videoSize) {
+    const { width, height, clientWidth, clientHeight } = opcoes.debugCamera.videoSize;
+    adicionarLogMrz(log, "Camera", `video=${width}x${height}, elemento=${clientWidth}x${clientHeight}.`);
+  }
+  if (opcoes.debugCamera?.viewport) {
+    const { x, y, width, height } = opcoes.debugCamera.viewport;
+    adicionarLogMrz(log, "Camera crop cover", `x=${x}, y=${y}, w=${width}, h=${height}.`);
+  }
+  if (opcoes.debugCamera?.frameVideoUrl) {
+    adicionarImagemLogMrz(log, "Camera: frame bruto do video antes do crop", opcoes.debugCamera.frameVideoUrl);
+  }
+}
+
+function adicionarDebugResultadoEtapa3Mrz(log, resultado) {
+  if (!MRZ_SHOW_DEBUG_LOG || !resultado?.debugImages?.length) return;
+
+  for (const item of resultado.debugImages) {
+    adicionarImagemLogMrz(log, item.label || "Debug OCR", item.url);
+  }
+}
+
 function formatarLogMrz(log) {
   const linhas = (log || []).filter(item => typeof item === "string");
   return linhas.length ? `LOG DE LEITURA\n${linhas.join("\n")}\n\n` : "";
@@ -1631,7 +1683,7 @@ async function adicionarImagensLogMrz(log, imagemInteira, imagemLeitura) {
   if (imagemLeitura) {
     log.push({
       type: "image",
-      label: t.mrzLogRecorteLeitura || "Recorte usado para leitura",
+      label: t.mrzLogRecorteLeitura || "Imagem efetiva enviada para leitura OCR",
       url: await criarPreviewImagemLogMrz(imagemLeitura)
     });
   }

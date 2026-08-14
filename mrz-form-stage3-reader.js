@@ -1015,10 +1015,22 @@ async function prepareImage(testCase, pipeline) {
   return {
     blob,
     debug: [
-      { label: roiDebugLabel(pipeline.roi, roi, img), url: originalUrl },
-      { label: "Processado", url: processedUrl }
+      { label: `${pipeline.name}: ${roiDebugLabel(pipeline.roi, roi, img)}`, url: originalUrl },
+      { label: `${pipeline.name}: processado para OCR (${filterDebugLabel(pipeline.filters)})`, url: processedUrl }
     ]
   };
+}
+
+function filterDebugLabel(filters = {}) {
+  const parts = [];
+  if (filters.grayscale) parts.push("cinzento");
+  if (filters.shadowNormalize) parts.push(`sombras ${filters.shadowNormalize}`);
+  if (filters.gamma) parts.push(`gamma ${filters.gamma}`);
+  if (filters.contrast) parts.push(`contraste ${filters.contrast}`);
+  if (filters.threshold !== undefined && filters.threshold !== null) parts.push(`threshold ${filters.threshold}`);
+  if (filters.sharpen) parts.push(`nitidez ${filters.sharpen}`);
+  if (filters.denoise) parts.push("denoise");
+  return parts.join(", ") || "sem filtros";
 }
 
 function roiDebugLabel(mode, roi, img) {
@@ -3506,6 +3518,16 @@ async function readStage3Mrz(file, options = {}) {
   const finalResult = getFinalResult(testCase);
   const fields = finalResult ? parseMrzFields(finalResult.text) : null;
   if (fields) fields.mrzLines = normalizeMrzText(finalResult.text).split(/\n/).filter(Boolean);
+  const debugImages = [];
+  for (const result of testCase.results) {
+    if (result.pipelineId === ENSEMBLE_PIPELINE_ID || !result.debug?.length) continue;
+    for (const item of result.debug) {
+      debugImages.push({
+        label: item.label,
+        url: item.url
+      });
+    }
+  }
   return {
     ok: Boolean(fields),
     text: finalResult?.text || "",
@@ -3515,7 +3537,8 @@ async function readStage3Mrz(file, options = {}) {
     roi: testCase.autoRoi || null,
     imageSize: testCase.imageSize || null,
     warning: testCase.roiWarning || "",
-    results: testCase.results
+    results: testCase.results,
+    debugImages
   };
 }
 
