@@ -8,6 +8,7 @@ let mrzCameraDeviceId = "";
 let mrzCameraTrocaEmCurso = false;
 let mrzLeituraDinamicaAtiva = false;
 let mrzLeituraDinamicaId = 0;
+let mrzLeituraDinamicaLog = null;
 let mrzImagemOriginal = null;
 let mrzImagemPreviewUrl = "";
 const MRZ_FIELD_IDS = [
@@ -243,6 +244,7 @@ function abrirLeitorDocumento() {
   if (!modal) return;
   document.getElementById("mrz-form-alert")?.setAttribute("hidden", "");
   document.querySelector(".mrz-log-images")?.remove();
+  mrzLeituraDinamicaLog = null;
   if (actions) actions.hidden = false;
   if (instructions) instructions.hidden = false;
   modal.classList.add("is-open");
@@ -513,18 +515,26 @@ async function alternarLeituraDinamicaDocumento() {
 async function iniciarLeituraDinamicaDocumento() {
   const video = document.getElementById("mrz-video");
 
+  mrzLeituraDinamicaLog = criarLogDinamicoMrz();
+  adicionarLogDinamicoMrz("Modo", "Leitura dinamica iniciada pelo botao dedicado.");
+
   if (!window.MrzStage3Reader?.read) {
+    adicionarLogDinamicoMrz("Erro", "Leitor MRZ etapa 3 nao carregado.");
     mostrarErroMrz();
     return;
   }
 
   if (!mrzStream) {
+    adicionarLogDinamicoMrz("Camera", "A abrir camera antes de iniciar leitura dinamica.");
     await iniciarCameraDocumento();
+  } else {
+    adicionarLogDinamicoMrz("Camera", "Camera ja estava aberta.");
   }
 
   await aguardarVideoProntoMrz(video);
 
   if (!mrzStream || !video || !video.videoWidth) {
+    adicionarLogDinamicoMrz("Erro", "Camera indisponivel ou sem frames de video.");
     mostrarErroMrz();
     return;
   }
@@ -535,6 +545,11 @@ async function iniciarLeituraDinamicaDocumento() {
   esconderInstrucoesMrz();
   mostrarProgressoMrz(true);
   atualizarProgressoMrz(0);
+  adicionarLogDinamicoMrz("Espera", "Camera aberta. A aguardar 3 segundos para foco/exposicao estabilizarem.");
+  atualizarEstadoMrz("Leitura dinamica: a estabilizar camera por 3 segundos...");
+  await atrasoMrz(3000);
+  if (!mrzLeituraDinamicaAtiva || runId !== mrzLeituraDinamicaId) return;
+  adicionarLogDinamicoMrz("Arranque", "A iniciar tentativas continuas. So para com sucesso ou botao Parar leitura.");
   await executarLeituraDinamicaDocumento(runId);
 }
 
@@ -543,6 +558,7 @@ function pararLeituraDinamicaDocumento(mensagem = "") {
   mrzLeituraDinamicaAtiva = false;
   mrzLeituraDinamicaId++;
   atualizarBotaoLeituraDinamica();
+  if (mensagem) adicionarLogDinamicoMrz("Parado", mensagem);
   if (mensagem) atualizarEstadoMrz(mensagem);
 }
 
@@ -556,12 +572,17 @@ async function executarLeituraDinamicaDocumento(runId) {
     try {
       if (!video || !video.videoWidth || !mrzStream) throw new Error("Camera indisponivel.");
       atualizarEstadoMrz(`Leitura dinamica: tentativa ${tentativa}...`);
+      adicionarLogDinamicoMrz("Tentativa", `#${tentativa}: a aguardar frames recentes do preview.`);
       await aguardarFramesVideoMrz(video, tentativa === 1 ? 5 : 2);
 
       const viewport = calcularViewportVideoCover(video);
+      adicionarLogDinamicoMrz("Captura", `#${tentativa}: a capturar 3 frames e escolher o mais nitido.`);
       const captura = await capturarFrameMaisNitidoDocumento(video, 3);
       const imagem = await canvasToBlobMrz(captura.canvas, "image/png");
       imagem.name = `leitura-dinamica-${tentativa}.png`;
+      adicionarLogDinamicoMrz("Captura", `#${tentativa}: frame ${captura.index + 1}/${captura.total}, score nitidez=${captura.score}.`);
+      adicionarLogDinamicoMrz("Deteccao", `#${tentativa}: a tentar identificar zona MRZ/ROI.`);
+      adicionarLogDinamicoMrz("OCR", `#${tentativa}: a ler OCR com pipeline rapido.`);
 
       const resultado = await window.MrzStage3Reader.read(imagem, {
         lang: "ocrb",
@@ -572,11 +593,19 @@ async function executarLeituraDinamicaDocumento(runId) {
         roiTimeoutMs: 3500,
         pipelineIds: ["ocrb-manual-shadow-local-soft"],
         debugImages: false,
+        onStatus: mensagem => {
+          if (mensagem) adicionarLogDinamicoMrz("Etapa 3", `#${tentativa}: ${mensagem}`);
+        },
         onProgress: percentagem => atualizarProgressoMrz(Math.min(95, Math.max(5, percentagem || 0)))
       });
 
       if (resultado.ok && resultado.formData) {
+        adicionarLogDinamicoMrz("Sucesso", `#${tentativa}: MRZ valida encontrada. A preencher campos.`);
         const log = criarLogMrz(imagem);
+        if (mrzLeituraDinamicaLog?.length) {
+          log.push("[Historico dinamico]");
+          log.push(...mrzLeituraDinamicaLog.slice(1));
+        }
         adicionarLogMrz(log, "Modo", "Leitura dinamica no preview da camera.");
         adicionarLogMrz(log, "Camera captura", "melhor de 3 frames por tentativa");
         adicionarLogMrz(log, "Camera nitidez", `Tentativa ${tentativa}; escolhido frame ${captura.index + 1}/${captura.total}; score=${captura.score}.`);
@@ -609,10 +638,12 @@ async function executarLeituraDinamicaDocumento(runId) {
         return;
       }
 
+      adicionarLogDinamicoMrz("Falhou", `#${tentativa}: sem MRZ valida. Continua para a proxima tentativa.`);
       atualizarProgressoMrz(0);
       await atrasoMrz(900);
     } catch (error) {
       console.info("Leitura dinamica sem resultado:", error);
+      adicionarLogDinamicoMrz("Falhou", `#${tentativa}: ${error?.message || String(error)}. Continua.`);
       atualizarProgressoMrz(0);
       await atrasoMrz(1200);
     }
@@ -1857,6 +1888,24 @@ function criarLogMrz(imagem) {
 function adicionarLogMrz(log, etapa, detalhe) {
   if (!log) return;
   log.push(`[${etapa}] ${detalhe}`);
+}
+
+function criarLogDinamicoMrz() {
+  return [`[Inicio] ${new Date().toLocaleTimeString()} | leitura dinamica em tempo real`];
+}
+
+function adicionarLogDinamicoMrz(etapa, detalhe) {
+  if (!mrzLeituraDinamicaLog) return;
+  mrzLeituraDinamicaLog.push(`[${new Date().toLocaleTimeString()}] [${etapa}] ${detalhe}`);
+  mostrarLogDinamicoMrz();
+}
+
+function mostrarLogDinamicoMrz() {
+  const result = document.getElementById("mrz-result");
+  if (!result || !mrzLeituraDinamicaLog) return;
+  result.textContent = `LOG DE LEITURA DINAMICA\n${mrzLeituraDinamicaLog.join("\n")}`;
+  result.hidden = false;
+  result.scrollTop = result.scrollHeight;
 }
 
 function adicionarImagemLogMrz(log, label, url, meta = "") {

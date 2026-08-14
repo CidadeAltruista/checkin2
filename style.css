@@ -310,9 +310,14 @@ button:disabled {
   gap: 10px;
 }
 
+.mrz-actions button.selected,
 .mrz-camera-actions button.selected {
   background: #B86B22;
   box-shadow: 0 8px 18px rgba(184, 107, 34, 0.24);
+}
+
+.mrz-camera-actions #btn-leitura-dinamica {
+  display: none;
 }
 
 .mrz-camera {
