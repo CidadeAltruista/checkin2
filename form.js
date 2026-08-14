@@ -346,9 +346,11 @@ function focarTopoLeitorDocumento() {
 
 function obterConstraintsCameraDocumento(deviceId = "") {
   const baseConstraints = {
-    width: { ideal: 1920 },
-    height: { ideal: 1080 },
-    facingMode: { ideal: "environment" }
+    width: { ideal: 2560 },
+    height: { ideal: 1440 },
+    aspectRatio: { ideal: 4 / 3 },
+    facingMode: { ideal: "environment" },
+    frameRate: { ideal: 30, min: 15 }
   };
 
   if (!deviceId) return baseConstraints;
@@ -423,13 +425,20 @@ async function prepararCameraDocumento(stream) {
   if (capabilities.focusMode?.includes("continuous")) {
     advanced.push({ focusMode: "continuous" });
   }
-
+  if (capabilities.exposureMode?.includes("continuous")) {
+    advanced.push({ exposureMode: "continuous" });
+  }
+  if (capabilities.whiteBalanceMode?.includes("continuous")) {
+    advanced.push({ whiteBalanceMode: "continuous" });
+  }
   if (!advanced.length) return;
 
-  try {
-    await track.applyConstraints({ advanced });
-  } catch (error) {
-    console.info("Ajuste de foco nao suportado nesta camera:", error);
+  for (const constraint of advanced) {
+    try {
+      await track.applyConstraints({ advanced: [constraint] });
+    } catch (error) {
+      console.info("Ajuste de camera nao suportado:", constraint, error);
+    }
   }
 }
 
@@ -472,60 +481,203 @@ function atualizarBotaoTrocarCamera() {
   if (button) button.hidden = mrzCameraDevices.length < 2;
 }
 
-function capturarFotoDocumento() {
+async function capturarFotoDocumento() {
   const video = document.getElementById("mrz-video");
+  const captureButton = document.getElementById("btn-capturar-foto");
 
   if (!video || !video.videoWidth || !video.clientWidth || !video.clientHeight) {
     mostrarErroMrz();
     return;
   }
 
-  const viewport = calcularViewportVideoCover(video);
-  const videoSnapshotCanvas = document.createElement("canvas");
-  videoSnapshotCanvas.width = video.videoWidth;
-  videoSnapshotCanvas.height = video.videoHeight;
-  videoSnapshotCanvas.getContext("2d").drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+  try {
+    if (captureButton) captureButton.disabled = true;
+    atualizarEstadoMrz("A estabilizar imagem da camera...");
+    await aguardarFramesVideoMrz(video, 3);
 
-  const fullCanvas = document.createElement("canvas");
-  fullCanvas.width = viewport.width;
-  fullCanvas.height = viewport.height;
-  fullCanvas.getContext("2d").drawImage(
-    video,
-    viewport.x,
-    viewport.y,
-    viewport.width,
-    viewport.height,
-    0,
-    0,
-    viewport.width,
-    viewport.height
-  );
+    const viewport = calcularViewportVideoCover(video);
+    const videoSnapshotCanvas = criarCanvasFrameVideoMrz(video);
+    const videoSize = {
+      width: video.videoWidth,
+      height: video.videoHeight,
+      clientWidth: video.clientWidth,
+      clientHeight: video.clientHeight
+    };
+    atualizarEstadoMrz("A escolher o frame mais nitido...");
+    const captura = await capturarFrameMaisNitidoDocumento(video, 7);
 
-  pararCameraDocumento();
-  esconderInstrucoesMrz();
+    atualizarEstadoMrz("A tentar captura nativa da camera...");
+    const track = mrzStream?.getVideoTracks?.()[0];
+    const nativePhoto = await tentarCapturaNativaDocumento(track);
 
-  canvasToBlobMrz(fullCanvas, "image/jpeg", 0.92).then(fullBlob => {
-    fullBlob.name = "captura-camera.jpg";
-    processarImagemCameraDocumento(fullBlob, {
-      frameVideoUrl: videoSnapshotCanvas.toDataURL("image/jpeg", 0.82),
-      viewport,
-      videoSize: {
-        width: video.videoWidth,
-        height: video.videoHeight,
-        clientWidth: video.clientWidth,
-        clientHeight: video.clientHeight
-      }
-    });
-  }).catch(error => {
+    let imagem;
+    let debugCamera;
+
+    if (nativePhoto) {
+      imagem = nativePhoto;
+      imagem.name = nativePhoto.name || "captura-camera-nativa.jpg";
+      debugCamera = {
+        metodo: "ImageCapture.takePhoto",
+        frameVideoUrl: videoSnapshotCanvas.toDataURL("image/jpeg", 0.9),
+        melhorFrameUrl: captura.canvas.toDataURL("image/png"),
+        viewport,
+        videoSize,
+        fotoNativa: true,
+        framesCapturados: captura.total,
+        melhorFrame: captura.index + 1,
+        nitidez: captura.score
+      };
+    } else {
+      imagem = await canvasToBlobMrz(captura.canvas, "image/png");
+      imagem.name = "captura-camera-melhor-frame.png";
+      debugCamera = {
+        metodo: "melhor de varios frames",
+        frameVideoUrl: videoSnapshotCanvas.toDataURL("image/jpeg", 0.9),
+        melhorFrameUrl: captura.canvas.toDataURL("image/png"),
+        viewport,
+        videoSize,
+        framesCapturados: captura.total,
+        melhorFrame: captura.index + 1,
+        nitidez: captura.score
+      };
+    }
+
+    pararCameraDocumento();
+    esconderInstrucoesMrz();
+    await processarImagemCameraDocumento(imagem, debugCamera);
+  } catch (error) {
     console.warn("Erro ao capturar foto:", error);
     mostrarFalhaLeituraMrz();
-  });
+  } finally {
+    if (captureButton) captureButton.disabled = false;
+  }
 }
 
 function canvasToBlobMrz(canvas, type = "image/jpeg", quality = 0.92) {
   return new Promise((resolve, reject) => {
     canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Nao foi possivel criar a imagem.")), type, quality);
   });
+}
+
+function aguardarFramesVideoMrz(video, quantidade = 2) {
+  return new Promise(resolve => {
+    let restantes = Math.max(1, quantidade);
+    const proximo = () => {
+      restantes--;
+      if (restantes <= 0) {
+        resolve();
+        return;
+      }
+      if (typeof video.requestVideoFrameCallback === "function") {
+        video.requestVideoFrameCallback(proximo);
+      } else {
+        requestAnimationFrame(proximo);
+      }
+    };
+
+    if (typeof video.requestVideoFrameCallback === "function") {
+      video.requestVideoFrameCallback(proximo);
+    } else {
+      requestAnimationFrame(proximo);
+    }
+  });
+}
+
+async function tentarCapturaNativaDocumento(track) {
+  if (!track || typeof ImageCapture === "undefined") return null;
+
+  try {
+    const imageCapture = new ImageCapture(track);
+    const blob = await imageCapture.takePhoto();
+    if (!blob || blob.size <= 0) return null;
+    return blob;
+  } catch (error) {
+    console.info("Captura nativa indisponivel; a usar melhor frame do video:", error);
+    return null;
+  }
+}
+
+async function capturarFrameMaisNitidoDocumento(video, total = 7) {
+  let melhor = null;
+
+  for (let index = 0; index < total; index++) {
+    await aguardarFramesVideoMrz(video, index === 0 ? 1 : 2);
+    const canvas = criarCanvasFrameVideoMrz(video, calcularViewportVideoCover(video));
+    const score = calcularNitidezCanvasMrz(canvas);
+
+    if (!melhor || score > melhor.score) {
+      melhor = { canvas, score, index, total };
+    }
+  }
+
+  return melhor;
+}
+
+function criarCanvasFrameVideoMrz(video, viewport = null) {
+  const origem = viewport || {
+    x: 0,
+    y: 0,
+    width: video.videoWidth,
+    height: video.videoHeight
+  };
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+  canvas.width = origem.width;
+  canvas.height = origem.height;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(
+    video,
+    origem.x,
+    origem.y,
+    origem.width,
+    origem.height,
+    0,
+    0,
+    origem.width,
+    origem.height
+  );
+
+  return canvas;
+}
+
+function calcularNitidezCanvasMrz(canvas) {
+  const maxWidth = 640;
+  const scale = Math.min(1, maxWidth / canvas.width);
+  const sampleCanvas = document.createElement("canvas");
+  const sampleWidth = Math.max(1, Math.round(canvas.width * scale));
+  const sampleHeight = Math.max(1, Math.round(canvas.height * scale));
+  const sampleCtx = sampleCanvas.getContext("2d", { willReadFrequently: true });
+
+  sampleCanvas.width = sampleWidth;
+  sampleCanvas.height = sampleHeight;
+  sampleCtx.imageSmoothingEnabled = true;
+  sampleCtx.imageSmoothingQuality = "high";
+  sampleCtx.drawImage(canvas, 0, 0, sampleWidth, sampleHeight);
+
+  const data = sampleCtx.getImageData(0, 0, sampleWidth, sampleHeight).data;
+  let total = 0;
+  let count = 0;
+
+  for (let y = 1; y < sampleHeight - 1; y += 2) {
+    for (let x = 1; x < sampleWidth - 1; x += 2) {
+      const i = (y * sampleWidth + x) * 4;
+      const esquerda = cinzentoPixelMrz(data, i - 4);
+      const direita = cinzentoPixelMrz(data, i + 4);
+      const cima = cinzentoPixelMrz(data, i - sampleWidth * 4);
+      const baixo = cinzentoPixelMrz(data, i + sampleWidth * 4);
+      const gx = direita - esquerda;
+      const gy = baixo - cima;
+      total += gx * gx + gy * gy;
+      count++;
+    }
+  }
+
+  return count ? Math.round(total / count) : 0;
+}
+
+function cinzentoPixelMrz(data, index) {
+  return data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
 }
 
 function calcularViewportVideoCover(video) {
@@ -1603,12 +1755,24 @@ function adicionarDebugEntradaMrz(log, imagem, opcoes = {}) {
     const { width, height, clientWidth, clientHeight } = opcoes.debugCamera.videoSize;
     adicionarLogMrz(log, "Camera", `video=${width}x${height}, elemento=${clientWidth}x${clientHeight}.`);
   }
+  if (opcoes.debugCamera?.metodo) {
+    adicionarLogMrz(log, "Camera captura", opcoes.debugCamera.metodo);
+  }
+  if (opcoes.debugCamera?.framesCapturados) {
+    adicionarLogMrz(log, "Camera nitidez", `${opcoes.debugCamera.framesCapturados} frames analisados; escolhido frame ${opcoes.debugCamera.melhorFrame}; score=${opcoes.debugCamera.nitidez}.`);
+  }
+  if (opcoes.debugCamera?.fotoNativa) {
+    adicionarLogMrz(log, "Camera nativa", "Imagem obtida por ImageCapture.takePhoto quando suportado pelo browser/dispositivo.");
+  }
   if (opcoes.debugCamera?.viewport) {
     const { x, y, width, height } = opcoes.debugCamera.viewport;
     adicionarLogMrz(log, "Camera crop cover", `x=${x}, y=${y}, w=${width}, h=${height}.`);
   }
   if (opcoes.debugCamera?.frameVideoUrl) {
     adicionarImagemLogMrz(log, "Camera: frame bruto do video antes do crop", opcoes.debugCamera.frameVideoUrl);
+  }
+  if (opcoes.debugCamera?.melhorFrameUrl) {
+    adicionarImagemLogMrz(log, "Camera: melhor frame escolhido para OCR", opcoes.debugCamera.melhorFrameUrl);
   }
 }
 
