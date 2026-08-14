@@ -6,6 +6,8 @@ let mrzV2RequestId = 0;
 let mrzCameraDevices = [];
 let mrzCameraDeviceId = "";
 let mrzCameraTrocaEmCurso = false;
+let mrzLeituraDinamicaAtiva = false;
+let mrzLeituraDinamicaId = 0;
 let mrzImagemOriginal = null;
 let mrzImagemPreviewUrl = "";
 const MRZ_FIELD_IDS = [
@@ -117,6 +119,9 @@ function atualizarTextosMrz(t) {
     "btn-usar-camera": t.usarCamera,
     "btn-trocar-camera": t.trocarCamera,
     "btn-capturar-foto": t.capturarFoto,
+    "btn-leitura-dinamica": mrzLeituraDinamicaAtiva
+      ? (t.pararLeituraDinamica || "Parar leitura")
+      : (t.leituraDinamica || "Leitura dinamica"),
     "mrz-progress-label": t.progresso
   };
 
@@ -255,6 +260,7 @@ function abrirLeitorDocumento() {
 function fecharLeitorDocumento() {
   const modal = document.getElementById("mrz-modal");
 
+  pararLeituraDinamicaDocumento();
   pararCameraDocumento(true);
   limparImagemManualMrz();
   if (modal) {
@@ -446,6 +452,7 @@ async function trocarCameraDocumento() {
   const video = document.getElementById("mrz-video");
 
   if (mrzCameraTrocaEmCurso || !navigator.mediaDevices?.getUserMedia || !video) return;
+  pararLeituraDinamicaDocumento();
 
   try {
     mrzCameraTrocaEmCurso = true;
@@ -481,7 +488,139 @@ function atualizarBotaoTrocarCamera() {
   if (button) button.hidden = mrzCameraDevices.length < 2;
 }
 
+function atualizarBotaoLeituraDinamica() {
+  const button = document.getElementById("btn-leitura-dinamica");
+  if (!button) return;
+  const t = traducoes[linguaAtual] || traducoes.pt;
+  const label = mrzLeituraDinamicaAtiva
+    ? (t.pararLeituraDinamica || "Parar leitura")
+    : (t.leituraDinamica || "Leitura dinamica");
+  const text = button.querySelector("span:last-child");
+  if (text) text.textContent = label;
+  else button.textContent = label;
+  button.classList.toggle("selected", mrzLeituraDinamicaAtiva);
+}
+
+async function alternarLeituraDinamicaDocumento() {
+  if (mrzLeituraDinamicaAtiva) {
+    pararLeituraDinamicaDocumento("Leitura dinamica parada.");
+    return;
+  }
+
+  await iniciarLeituraDinamicaDocumento();
+}
+
+async function iniciarLeituraDinamicaDocumento() {
+  const video = document.getElementById("mrz-video");
+
+  if (!window.MrzStage3Reader?.read) {
+    mostrarErroMrz();
+    return;
+  }
+
+  if (!mrzStream) {
+    await iniciarCameraDocumento();
+  }
+
+  await aguardarVideoProntoMrz(video);
+
+  if (!mrzStream || !video || !video.videoWidth) {
+    mostrarErroMrz();
+    return;
+  }
+
+  mrzLeituraDinamicaAtiva = true;
+  const runId = ++mrzLeituraDinamicaId;
+  atualizarBotaoLeituraDinamica();
+  esconderInstrucoesMrz();
+  mostrarProgressoMrz(true);
+  atualizarProgressoMrz(0);
+  await executarLeituraDinamicaDocumento(runId);
+}
+
+function pararLeituraDinamicaDocumento(mensagem = "") {
+  if (!mrzLeituraDinamicaAtiva && !mensagem) return;
+  mrzLeituraDinamicaAtiva = false;
+  mrzLeituraDinamicaId++;
+  atualizarBotaoLeituraDinamica();
+  if (mensagem) atualizarEstadoMrz(mensagem);
+}
+
+async function executarLeituraDinamicaDocumento(runId) {
+  const video = document.getElementById("mrz-video");
+  let tentativa = 0;
+
+  while (mrzLeituraDinamicaAtiva && runId === mrzLeituraDinamicaId) {
+    tentativa++;
+
+    try {
+      if (!video || !video.videoWidth || !mrzStream) throw new Error("Camera indisponivel.");
+      atualizarEstadoMrz(`Leitura dinamica: tentativa ${tentativa}...`);
+      await aguardarFramesVideoMrz(video, tentativa === 1 ? 5 : 2);
+
+      const viewport = calcularViewportVideoCover(video);
+      const captura = await capturarFrameMaisNitidoDocumento(video, 3);
+      const imagem = await canvasToBlobMrz(captura.canvas, "image/png");
+      imagem.name = `leitura-dinamica-${tentativa}.png`;
+
+      const resultado = await window.MrzStage3Reader.read(imagem, {
+        lang: "ocrb",
+        langPath: "./tessdata",
+        timeoutMs: 9000,
+        roiLang: "ocrb",
+        roiLangPath: "./tessdata",
+        roiTimeoutMs: 3500,
+        pipelineIds: ["ocrb-manual-shadow-local-soft"],
+        debugImages: false,
+        onProgress: percentagem => atualizarProgressoMrz(Math.min(95, Math.max(5, percentagem || 0)))
+      });
+
+      if (resultado.ok && resultado.formData) {
+        const log = criarLogMrz(imagem);
+        adicionarLogMrz(log, "Modo", "Leitura dinamica no preview da camera.");
+        adicionarLogMrz(log, "Camera captura", "melhor de 3 frames por tentativa");
+        adicionarLogMrz(log, "Camera nitidez", `Tentativa ${tentativa}; escolhido frame ${captura.index + 1}/${captura.total}; score=${captura.score}.`);
+        adicionarLogMrz(log, "Pipeline dinamico", "ocrb-manual-shadow-local-soft");
+        adicionarDebugEntradaMrz(log, imagem, {
+          origem: "camera dinamica",
+          debugCamera: {
+            metodo: "leitura dinamica",
+            melhorFrameUrl: captura.canvas.toDataURL("image/png"),
+            viewport,
+            framesCapturados: captura.total,
+            melhorFrame: captura.index + 1,
+            nitidez: captura.score,
+            videoSize: {
+              width: video.videoWidth,
+              height: video.videoHeight,
+              clientWidth: video.clientWidth,
+              clientHeight: video.clientHeight
+            }
+          }
+        });
+        if (resultado.results?.length) {
+          adicionarLogMrz(log, "Resultado dinamico", resultado.results.map(item => `${item.pipelineName}: ${item.trust?.label || item.error || "sem estado"}`).join(" | "));
+        }
+        mrzLeituraDinamicaAtiva = false;
+        mrzLeituraDinamicaId++;
+        atualizarBotaoLeituraDinamica();
+        pararCameraDocumento();
+        finalizarLeituraMrz(resultado.text || resultado.rawText || "", resultado.formData, log);
+        return;
+      }
+
+      atualizarProgressoMrz(0);
+      await atrasoMrz(900);
+    } catch (error) {
+      console.info("Leitura dinamica sem resultado:", error);
+      atualizarProgressoMrz(0);
+      await atrasoMrz(1200);
+    }
+  }
+}
+
 async function capturarFotoDocumento() {
+  pararLeituraDinamicaDocumento();
   const video = document.getElementById("mrz-video");
   const captureButton = document.getElementById("btn-capturar-foto");
 
@@ -505,42 +644,18 @@ async function capturarFotoDocumento() {
     };
     atualizarEstadoMrz("A escolher o frame mais nitido...");
     const captura = await capturarFrameMaisNitidoDocumento(video, 7);
-
-    atualizarEstadoMrz("A tentar captura nativa da camera...");
-    const track = mrzStream?.getVideoTracks?.()[0];
-    const nativePhoto = await tentarCapturaNativaDocumento(track);
-
-    let imagem;
-    let debugCamera;
-
-    if (nativePhoto) {
-      imagem = nativePhoto;
-      imagem.name = nativePhoto.name || "captura-camera-nativa.jpg";
-      debugCamera = {
-        metodo: "ImageCapture.takePhoto",
-        frameVideoUrl: videoSnapshotCanvas.toDataURL("image/jpeg", 0.9),
-        melhorFrameUrl: captura.canvas.toDataURL("image/png"),
-        viewport,
-        videoSize,
-        fotoNativa: true,
-        framesCapturados: captura.total,
-        melhorFrame: captura.index + 1,
-        nitidez: captura.score
-      };
-    } else {
-      imagem = await canvasToBlobMrz(captura.canvas, "image/png");
-      imagem.name = "captura-camera-melhor-frame.png";
-      debugCamera = {
-        metodo: "melhor de varios frames",
-        frameVideoUrl: videoSnapshotCanvas.toDataURL("image/jpeg", 0.9),
-        melhorFrameUrl: captura.canvas.toDataURL("image/png"),
-        viewport,
-        videoSize,
-        framesCapturados: captura.total,
-        melhorFrame: captura.index + 1,
-        nitidez: captura.score
-      };
-    }
+    const imagem = await canvasToBlobMrz(captura.canvas, "image/png");
+    imagem.name = "captura-camera-melhor-frame.png";
+    const debugCamera = {
+      metodo: "melhor de varios frames",
+      frameVideoUrl: videoSnapshotCanvas.toDataURL("image/jpeg", 0.9),
+      melhorFrameUrl: captura.canvas.toDataURL("image/png"),
+      viewport,
+      videoSize,
+      framesCapturados: captura.total,
+      melhorFrame: captura.index + 1,
+      nitidez: captura.score
+    };
 
     pararCameraDocumento();
     esconderInstrucoesMrz();
@@ -583,18 +698,24 @@ function aguardarFramesVideoMrz(video, quantidade = 2) {
   });
 }
 
-async function tentarCapturaNativaDocumento(track) {
-  if (!track || typeof ImageCapture === "undefined") return null;
+function aguardarVideoProntoMrz(video, timeoutMs = 2500) {
+  if (!video || video.videoWidth) return Promise.resolve();
 
-  try {
-    const imageCapture = new ImageCapture(track);
-    const blob = await imageCapture.takePhoto();
-    if (!blob || blob.size <= 0) return null;
-    return blob;
-  } catch (error) {
-    console.info("Captura nativa indisponivel; a usar melhor frame do video:", error);
-    return null;
-  }
+  return new Promise(resolve => {
+    const startedAt = Date.now();
+    const verificar = () => {
+      if (video.videoWidth || Date.now() - startedAt >= timeoutMs) {
+        resolve();
+        return;
+      }
+      requestAnimationFrame(verificar);
+    };
+    verificar();
+  });
+}
+
+function atrasoMrz(ms) {
+  return new Promise(resolve => window.setTimeout(resolve, ms));
 }
 
 async function capturarFrameMaisNitidoDocumento(video, total = 7) {
@@ -1760,9 +1881,6 @@ function adicionarDebugEntradaMrz(log, imagem, opcoes = {}) {
   }
   if (opcoes.debugCamera?.framesCapturados) {
     adicionarLogMrz(log, "Camera nitidez", `${opcoes.debugCamera.framesCapturados} frames analisados; escolhido frame ${opcoes.debugCamera.melhorFrame}; score=${opcoes.debugCamera.nitidez}.`);
-  }
-  if (opcoes.debugCamera?.fotoNativa) {
-    adicionarLogMrz(log, "Camera nativa", "Imagem obtida por ImageCapture.takePhoto quando suportado pelo browser/dispositivo.");
   }
   if (opcoes.debugCamera?.viewport) {
     const { x, y, width, height } = opcoes.debugCamera.viewport;

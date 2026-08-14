@@ -306,8 +306,13 @@ button:disabled {
 
 .mrz-camera-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 10px;
+}
+
+.mrz-camera-actions button.selected {
+  background: #B86B22;
+  box-shadow: 0 8px 18px rgba(184, 107, 34, 0.24);
 }
 
 .mrz-camera {

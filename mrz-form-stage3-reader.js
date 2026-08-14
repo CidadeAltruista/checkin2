@@ -1007,17 +1007,18 @@ async function prepareImage(testCase, pipeline) {
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(img, roi.x, roi.y, roi.w, roi.h, 0, 0, canvas.width, canvas.height);
 
-  const originalUrl = canvas.toDataURL("image/png");
+  const collectDebugImages = stage3ReaderOptions.debugImages !== false;
+  const originalUrl = collectDebugImages ? canvas.toDataURL("image/png") : "";
   applyFilters(canvas, pipeline.filters);
-  const processedUrl = canvas.toDataURL("image/png");
+  const processedUrl = collectDebugImages ? canvas.toDataURL("image/png") : "";
   const blob = await canvasToBlob(canvas, "image/png", 0.95);
 
   return {
     blob,
-    debug: [
+    debug: collectDebugImages ? [
       { label: `${pipeline.name}: ${roiDebugLabel(pipeline.roi, roi, img)}`, url: originalUrl },
       { label: `${pipeline.name}: processado para OCR (${filterDebugLabel(pipeline.filters)})`, url: processedUrl }
-    ]
+    ] : []
   };
 }
 
@@ -3493,12 +3494,15 @@ async function readStage3Mrz(file, options = {}) {
     results: [],
     roi: { x: 3, y: 58, w: 94, h: 32 }
   };
-  const selected = pipelines.filter(pipeline => [
+  const pipelineIds = Array.isArray(options.pipelineIds) && options.pipelineIds.length
+    ? options.pipelineIds
+    : [
     "ocrb-manual-strong",
     "ocrb-manual-shadow-local-soft",
     "ocrb-manual-shadow-gamma",
     "ocrb-manual-shadow-local"
-  ].includes(pipeline.id));
+  ];
+  const selected = pipelines.filter(pipeline => pipelineIds.includes(pipeline.id));
 
   for (const pipeline of selected) {
     let result;
