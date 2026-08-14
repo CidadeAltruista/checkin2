@@ -9,6 +9,7 @@ let mrzCameraTrocaEmCurso = false;
 let mrzLeituraDinamicaAtiva = false;
 let mrzLeituraDinamicaId = 0;
 let mrzLeituraDinamicaLog = null;
+let mrzLeituraDinamicaAcaoAtual = "";
 let mrzImagemOriginal = null;
 let mrzImagemPreviewUrl = "";
 const MRZ_FIELD_IDS = [
@@ -601,6 +602,39 @@ async function executarLeituraDinamicaDocumento(runId) {
 
       if (resultado.ok && resultado.formData) {
         adicionarLogDinamicoMrz("Sucesso", `#${tentativa}: MRZ valida encontrada. A preencher campos.`);
+        adicionarLogDinamicoMrz("Etapa 3 completa", `#${tentativa}: a confirmar o mesmo frame com ensemble completo e imagens de debug.`);
+        let resultadoFinal;
+        try {
+          resultadoFinal = await window.MrzStage3Reader.read(imagem, {
+            lang: "ocrb",
+            langPath: "./tessdata",
+            timeoutMs: 25000,
+            roiLang: "ocrb",
+            roiLangPath: "./tessdata",
+            roiTimeoutMs: 8000,
+            debugImages: true,
+            onStatus: mensagem => {
+              if (mensagem) adicionarLogDinamicoMrz("Etapa 3 completa", `#${tentativa}: ${mensagem}`);
+            },
+            onProgress: atualizarProgressoMrz
+          });
+        } catch (error) {
+          resultadoFinal = {
+            ok: false,
+            formData: null,
+            results: [],
+            debugImages: [],
+            error: error?.message || String(error)
+          };
+          adicionarLogDinamicoMrz("Etapa 3 completa", `#${tentativa}: erro na confirmacao completa: ${resultadoFinal.error}`);
+        }
+        const resultadoRobusto = resultadoFinal.ok && resultadoFinal.formData ? resultadoFinal : resultado;
+        adicionarLogDinamicoMrz(
+          resultadoFinal.ok ? "Confirmado" : "Fallback",
+          resultadoFinal.ok
+            ? `#${tentativa}: ensemble completo confirmou a leitura.`
+            : `#${tentativa}: ensemble completo nao confirmou; a usar leitura rapida ja validada.`
+        );
         const log = criarLogMrz(imagem);
         if (mrzLeituraDinamicaLog?.length) {
           log.push("[Historico dinamico]");
@@ -630,22 +664,26 @@ async function executarLeituraDinamicaDocumento(runId) {
         if (resultado.results?.length) {
           adicionarLogMrz(log, "Resultado dinamico", resultado.results.map(item => `${item.pipelineName}: ${item.trust?.label || item.error || "sem estado"}`).join(" | "));
         }
+        if (resultadoFinal.results?.length) {
+          adicionarLogMrz(log, "Resultado etapa 3 completa", resultadoFinal.results.map(item => `${item.pipelineName}: ${item.trust?.label || item.error || "sem estado"}`).join(" | "));
+        }
+        adicionarDebugResultadoEtapa3Mrz(log, resultadoFinal);
         mrzLeituraDinamicaAtiva = false;
         mrzLeituraDinamicaId++;
         atualizarBotaoLeituraDinamica();
         pararCameraDocumento();
-        finalizarLeituraMrz(resultado.text || resultado.rawText || "", resultado.formData, log);
+        finalizarLeituraMrz(resultadoRobusto.text || resultadoRobusto.rawText || "", resultadoRobusto.formData, log);
         return;
       }
 
       adicionarLogDinamicoMrz("Falhou", `#${tentativa}: sem MRZ valida. Continua para a proxima tentativa.`);
       atualizarProgressoMrz(0);
-      await atrasoMrz(900);
+      await atrasoMrz(200);
     } catch (error) {
       console.info("Leitura dinamica sem resultado:", error);
       adicionarLogDinamicoMrz("Falhou", `#${tentativa}: ${error?.message || String(error)}. Continua.`);
       atualizarProgressoMrz(0);
-      await atrasoMrz(1200);
+      await atrasoMrz(200);
     }
   }
 }
@@ -1896,6 +1934,7 @@ function criarLogDinamicoMrz() {
 
 function adicionarLogDinamicoMrz(etapa, detalhe) {
   if (!mrzLeituraDinamicaLog) return;
+  mrzLeituraDinamicaAcaoAtual = `[${etapa}] ${detalhe}`;
   mrzLeituraDinamicaLog.push(`[${new Date().toLocaleTimeString()}] [${etapa}] ${detalhe}`);
   mostrarLogDinamicoMrz();
 }
@@ -1903,7 +1942,7 @@ function adicionarLogDinamicoMrz(etapa, detalhe) {
 function mostrarLogDinamicoMrz() {
   const result = document.getElementById("mrz-result");
   if (!result || !mrzLeituraDinamicaLog) return;
-  result.textContent = `LOG DE LEITURA DINAMICA\n${mrzLeituraDinamicaLog.join("\n")}`;
+  result.textContent = `AGORA: ${mrzLeituraDinamicaAcaoAtual || "A preparar leitura dinamica..."}\n\nLOG DE LEITURA DINAMICA\n${mrzLeituraDinamicaLog.join("\n")}`;
   result.hidden = false;
   result.scrollTop = result.scrollHeight;
 }

@@ -316,10 +316,6 @@ button:disabled {
   box-shadow: 0 8px 18px rgba(184, 107, 34, 0.24);
 }
 
-.mrz-camera-actions #btn-leitura-dinamica {
-  display: none;
-}
-
 .mrz-camera {
   padding: 0 20px 18px;
 }
