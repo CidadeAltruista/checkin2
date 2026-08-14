@@ -10,6 +10,7 @@ let mrzLeituraDinamicaAtiva = false;
 let mrzLeituraDinamicaId = 0;
 let mrzLeituraDinamicaLog = null;
 let mrzLeituraDinamicaAcaoAtual = "";
+let mrzLeituraDinamicaTentativas = 0;
 let mrzImagemOriginal = null;
 let mrzImagemPreviewUrl = "";
 const MRZ_FIELD_IDS = [
@@ -455,7 +456,13 @@ async function trocarCameraDocumento() {
   const video = document.getElementById("mrz-video");
 
   if (mrzCameraTrocaEmCurso || !navigator.mediaDevices?.getUserMedia || !video) return;
-  pararLeituraDinamicaDocumento();
+  const retomarLeituraDinamica = mrzLeituraDinamicaAtiva;
+  if (retomarLeituraDinamica) {
+    mrzLeituraDinamicaAtiva = false;
+    mrzLeituraDinamicaId++;
+    atualizarBotaoLeituraDinamica();
+    adicionarLogDinamicoMrz("Trocar camera", "A pausar leitura dinamica durante a troca de camera.");
+  }
 
   try {
     mrzCameraTrocaEmCurso = true;
@@ -478,6 +485,12 @@ async function trocarCameraDocumento() {
     atualizarBotaoTrocarCamera();
     atualizarEstadoMrz("");
     focarCameraDocumento();
+    if (retomarLeituraDinamica) {
+      adicionarLogDinamicoMrz("Trocar camera", "Camera trocada. A retomar leitura dinamica.");
+      window.setTimeout(() => {
+        iniciarLeituraDinamicaDocumento({ preservarLog: true, preservarTentativas: true, esperaInicialMs: 3000 });
+      }, 0);
+    }
   } catch (error) {
     console.warn("Erro ao trocar camera:", error);
     mostrarErroMrz();
@@ -513,11 +526,19 @@ async function alternarLeituraDinamicaDocumento() {
   await iniciarLeituraDinamicaDocumento();
 }
 
-async function iniciarLeituraDinamicaDocumento() {
+async function iniciarLeituraDinamicaDocumento(opcoes = {}) {
   const video = document.getElementById("mrz-video");
+  const {
+    preservarLog = false,
+    preservarTentativas = false,
+    esperaInicialMs = 3000
+  } = opcoes;
 
-  mrzLeituraDinamicaLog = criarLogDinamicoMrz();
-  adicionarLogDinamicoMrz("Modo", "Leitura dinamica iniciada pelo botao dedicado.");
+  if (!preservarLog || !mrzLeituraDinamicaLog) {
+    mrzLeituraDinamicaLog = criarLogDinamicoMrz();
+  }
+  if (!preservarTentativas) mrzLeituraDinamicaTentativas = 0;
+  adicionarLogDinamicoMrz("Modo", preservarLog ? "Leitura dinamica retomada." : "Leitura dinamica iniciada pelo botao dedicado.");
 
   if (!window.MrzStage3Reader?.read) {
     adicionarLogDinamicoMrz("Erro", "Leitor MRZ etapa 3 nao carregado.");
@@ -546,9 +567,9 @@ async function iniciarLeituraDinamicaDocumento() {
   esconderInstrucoesMrz();
   mostrarProgressoMrz(true);
   atualizarProgressoMrz(0);
-  adicionarLogDinamicoMrz("Espera", "Camera aberta. A aguardar 3 segundos para foco/exposicao estabilizarem.");
-  atualizarEstadoMrz("Leitura dinamica: a estabilizar camera por 3 segundos...");
-  await atrasoMrz(3000);
+  adicionarLogDinamicoMrz("Espera", `Camera aberta. A aguardar ${Math.round(esperaInicialMs / 1000)} segundos para foco/exposicao estabilizarem.`);
+  atualizarEstadoMrz(`Leitura dinamica: a estabilizar camera por ${Math.round(esperaInicialMs / 1000)} segundos...`);
+  await atrasoMrz(esperaInicialMs);
   if (!mrzLeituraDinamicaAtiva || runId !== mrzLeituraDinamicaId) return;
   adicionarLogDinamicoMrz("Arranque", "A iniciar tentativas continuas. So para com sucesso ou botao Parar leitura.");
   await executarLeituraDinamicaDocumento(runId);
@@ -565,14 +586,22 @@ function pararLeituraDinamicaDocumento(mensagem = "") {
 
 async function executarLeituraDinamicaDocumento(runId) {
   const video = document.getElementById("mrz-video");
-  let tentativa = 0;
 
   while (mrzLeituraDinamicaAtiva && runId === mrzLeituraDinamicaId) {
-    tentativa++;
+    const tentativa = ++mrzLeituraDinamicaTentativas;
 
     try {
       if (!video || !video.videoWidth || !mrzStream) throw new Error("Camera indisponivel.");
-      atualizarEstadoMrz(`Leitura dinamica: tentativa ${tentativa}...`);
+      if (tentativa === 6) {
+        adicionarLogDinamicoMrz("Sugestao", "#6: se a leitura continuar dificil, experimente trocar de camera.");
+        atualizarEstadoMrz("Leitura dinamica: tentativa 6. Se continuar dificil, experimente Trocar camera.");
+      } else {
+        atualizarEstadoMrz(`Leitura dinamica: tentativa ${tentativa}...`);
+      }
+      if (tentativa > 10) {
+        encerrarLeituraDinamicaPorLimite();
+        return;
+      }
       adicionarLogDinamicoMrz("Tentativa", `#${tentativa}: a aguardar frames recentes do preview.`);
       await aguardarFramesVideoMrz(video, tentativa === 1 ? 5 : 2);
 
@@ -602,6 +631,8 @@ async function executarLeituraDinamicaDocumento(runId) {
 
       if (resultado.ok && resultado.formData) {
         adicionarLogDinamicoMrz("Sucesso", `#${tentativa}: MRZ valida encontrada. A preencher campos.`);
+        pararCameraDocumento();
+        mostrarImagemDinamicaFinalMrz(captura.canvas);
         adicionarLogDinamicoMrz("Etapa 3 completa", `#${tentativa}: a confirmar o mesmo frame com ensemble completo e imagens de debug.`);
         let resultadoFinal;
         try {
@@ -671,21 +702,46 @@ async function executarLeituraDinamicaDocumento(runId) {
         mrzLeituraDinamicaAtiva = false;
         mrzLeituraDinamicaId++;
         atualizarBotaoLeituraDinamica();
-        pararCameraDocumento();
         finalizarLeituraMrz(resultadoRobusto.text || resultadoRobusto.rawText || "", resultadoRobusto.formData, log);
         return;
       }
 
       adicionarLogDinamicoMrz("Falhou", `#${tentativa}: sem MRZ valida. Continua para a proxima tentativa.`);
+      if (tentativa >= 10) {
+        encerrarLeituraDinamicaPorLimite();
+        return;
+      }
       atualizarProgressoMrz(0);
       await atrasoMrz(200);
     } catch (error) {
       console.info("Leitura dinamica sem resultado:", error);
       adicionarLogDinamicoMrz("Falhou", `#${tentativa}: ${error?.message || String(error)}. Continua.`);
+      if (tentativa >= 10) {
+        encerrarLeituraDinamicaPorLimite();
+        return;
+      }
       atualizarProgressoMrz(0);
       await atrasoMrz(200);
     }
   }
+}
+
+function encerrarLeituraDinamicaPorLimite() {
+  adicionarLogDinamicoMrz("Limite", "10 tentativas sem leitura valida. A fechar camera.");
+  mrzLeituraDinamicaAtiva = false;
+  mrzLeituraDinamicaId++;
+  atualizarBotaoLeituraDinamica();
+  pararCameraDocumento();
+  mostrarProgressoMrz(false);
+  atualizarEstadoMrz("Nao foi possivel ler automaticamente. Faca upload de uma foto ou preencha manualmente.");
+}
+
+function mostrarImagemDinamicaFinalMrz(canvas) {
+  if (!MRZ_SHOW_DEBUG_LOG || !canvas) return;
+  document.querySelector(".mrz-log-images")?.remove();
+  const log = mrzLeituraDinamicaLog || criarLogDinamicoMrz();
+  adicionarImagemLogMrz(log, "Frame recortado usado na etapa 3 completa", canvas.toDataURL("image/png"));
+  mostrarImagensLogMrz(log);
 }
 
 async function capturarFotoDocumento() {
