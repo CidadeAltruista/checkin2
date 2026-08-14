@@ -400,6 +400,26 @@ async function atualizarCamerasDocumento() {
   mrzCameraDevices = ordenarCamerasDocumento(devices.filter(device => device.kind === "videoinput"));
 }
 
+function descreverCamerasDocumento() {
+  if (!mrzCameraDevices.length) return "Nenhuma camera identificada pelo browser.";
+
+  return mrzCameraDevices.map((camera, index) => {
+    const label = camera.label || `Camera ${index + 1} sem nome`;
+    const marcadorAtual = camera.deviceId && camera.deviceId === mrzCameraDeviceId ? " [em uso]" : "";
+    const marcadorPreferida = index === 0 ? " [preferida]" : "";
+    return `${index + 1}. ${label}${marcadorPreferida}${marcadorAtual}`;
+  }).join(" | ");
+}
+
+async function registarCamerasDocumentoNoLog(contexto = "Cameras") {
+  try {
+    await atualizarCamerasDocumento();
+    adicionarLogDinamicoMrz(contexto, descreverCamerasDocumento());
+  } catch (error) {
+    adicionarLogDinamicoMrz(contexto, `Nao foi possivel listar cameras: ${error?.message || String(error)}`);
+  }
+}
+
 function escolherCameraDocumento(cameras) {
   if (!cameras.length) return null;
   return ordenarCamerasDocumento(cameras)[0];
@@ -487,6 +507,7 @@ async function trocarCameraDocumento() {
     focarCameraDocumento();
     if (retomarLeituraDinamica) {
       adicionarLogDinamicoMrz("Trocar camera", "Camera trocada. A retomar leitura dinamica.");
+      await registarCamerasDocumentoNoLog("Cameras apos troca");
       window.setTimeout(() => {
         iniciarLeituraDinamicaDocumento({ preservarLog: true, preservarTentativas: true, esperaInicialMs: 3000 });
       }, 0);
@@ -552,6 +573,7 @@ async function iniciarLeituraDinamicaDocumento(opcoes = {}) {
   } else {
     adicionarLogDinamicoMrz("Camera", "Camera ja estava aberta.");
   }
+  await registarCamerasDocumentoNoLog("Cameras identificadas");
 
   await aguardarVideoProntoMrz(video);
 
@@ -592,9 +614,9 @@ async function executarLeituraDinamicaDocumento(runId) {
 
     try {
       if (!video || !video.videoWidth || !mrzStream) throw new Error("Camera indisponivel.");
-      if (tentativa === 6) {
-        adicionarLogDinamicoMrz("Sugestao", "#6: se a leitura continuar dificil, experimente trocar de camera.");
-        atualizarEstadoMrz("Leitura dinamica: tentativa 6. Se continuar dificil, experimente Trocar camera.");
+      if (tentativa === 3) {
+        adicionarLogDinamicoMrz("Sugestao", "#3: se a leitura continuar dificil, experimente trocar de camera.");
+        atualizarEstadoMrz("Leitura dinamica: tentativa 3. Se continuar dificil, experimente Trocar camera.");
       } else {
         atualizarEstadoMrz(`Leitura dinamica: tentativa ${tentativa}...`);
       }
