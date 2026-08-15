@@ -561,7 +561,7 @@ async function iniciarLeituraDinamicaDocumento(opcoes = {}) {
   if (!preservarTentativas) mrzLeituraDinamicaTentativas = 0;
   adicionarLogDinamicoMrz("Modo", preservarLog ? "Leitura dinamica retomada." : "Leitura dinamica iniciada pelo botao dedicado.");
 
-  if (!window.MrzStage3Reader?.read) {
+  if (!window.MrzStage3Reader?.read || !window.MrzStage3Reader?.detectRoi) {
     adicionarLogDinamicoMrz("Erro", "Leitor MRZ etapa 3 nao carregado.");
     mostrarErroMrz();
     return;
@@ -633,29 +633,25 @@ async function executarLeituraDinamicaDocumento(runId) {
       const imagem = await canvasToBlobMrz(captura.canvas, "image/png");
       imagem.name = `leitura-dinamica-${tentativa}.png`;
       adicionarLogDinamicoMrz("Captura", `#${tentativa}: frame ${captura.index + 1}/${captura.total}, score nitidez=${captura.score}.`);
-      adicionarLogDinamicoMrz("Deteccao", `#${tentativa}: a tentar identificar zona MRZ/ROI.`);
-      adicionarLogDinamicoMrz("OCR", `#${tentativa}: a ler OCR com pipeline rapido.`);
+      adicionarLogDinamicoMrz("Deteccao", `#${tentativa}: a tentar identificar apenas a zona MRZ/ROI.`);
 
-      const resultado = await window.MrzStage3Reader.read(imagem, {
+      const deteccao = await window.MrzStage3Reader.detectRoi(imagem, {
         lang: "ocrb",
         langPath: "./tessdata",
-        timeoutMs: 9000,
         roiLang: "ocrb",
         roiLangPath: "./tessdata",
         roiTimeoutMs: 3500,
-        pipelineIds: ["ocrb-manual-shadow-local-soft"],
-        debugImages: false,
         onStatus: mensagem => {
-          if (mensagem) adicionarLogDinamicoMrz("Etapa 3", `#${tentativa}: ${mensagem}`);
-        },
-        onProgress: percentagem => atualizarProgressoMrz(Math.min(95, Math.max(5, percentagem || 0)))
+          if (mensagem) adicionarLogDinamicoMrz("Deteccao", `#${tentativa}: ${mensagem}`);
+        }
       });
 
-      if (resultado.ok && resultado.formData) {
-        adicionarLogDinamicoMrz("Sucesso", `#${tentativa}: MRZ valida encontrada. A preencher campos.`);
+      if (deteccao.found && deteccao.roi) {
+        adicionarLogDinamicoMrz("Zona encontrada", `#${tentativa}: ROI encontrada. A fechar camera e preparar leitura robusta.`);
         pararCameraDocumento();
-        mostrarImagemDinamicaFinalMrz(captura.canvas);
-        adicionarLogDinamicoMrz("Etapa 3 completa", `#${tentativa}: a confirmar o mesmo frame com ensemble completo e imagens de debug.`);
+        const roiCanvas = criarCanvasRoiMrz(captura.canvas, deteccao.roi);
+        mostrarImagemDinamicaFinalMrz(roiCanvas || captura.canvas, "Zona MRZ recortada usada na etapa 3 completa");
+        adicionarLogDinamicoMrz("Etapa 3 completa", `#${tentativa}: a ler OCR completo no frame capturado.`);
         let resultadoFinal;
         try {
           resultadoFinal = await window.MrzStage3Reader.read(imagem, {
@@ -681,13 +677,19 @@ async function executarLeituraDinamicaDocumento(runId) {
           };
           adicionarLogDinamicoMrz("Etapa 3 completa", `#${tentativa}: erro na confirmacao completa: ${resultadoFinal.error}`);
         }
-        const resultadoRobusto = resultadoFinal.ok && resultadoFinal.formData ? resultadoFinal : resultado;
-        adicionarLogDinamicoMrz(
-          resultadoFinal.ok ? "Confirmado" : "Fallback",
-          resultadoFinal.ok
-            ? `#${tentativa}: ensemble completo confirmou a leitura.`
-            : `#${tentativa}: ensemble completo nao confirmou; a usar leitura rapida ja validada.`
-        );
+
+        if (!resultadoFinal.ok || !resultadoFinal.formData) {
+          adicionarLogDinamicoMrz("Falhou", `#${tentativa}: etapa 3 completa falhou. A voltar ao preview e continuar.`);
+          if (tentativa >= 10) {
+            encerrarLeituraDinamicaPorLimite();
+            return;
+          }
+          await reiniciarCameraLeituraDinamicaDocumento();
+          await atrasoMrz(200);
+          continue;
+        }
+
+        adicionarLogDinamicoMrz("Sucesso", `#${tentativa}: etapa 3 completa confirmou a leitura. A preencher campos.`);
         const log = criarLogMrz(imagem);
         if (mrzLeituraDinamicaLog?.length) {
           log.push("[Historico dinamico]");
@@ -696,7 +698,7 @@ async function executarLeituraDinamicaDocumento(runId) {
         adicionarLogMrz(log, "Modo", "Leitura dinamica no preview da camera.");
         adicionarLogMrz(log, "Camera captura", "melhor de 3 frames por tentativa");
         adicionarLogMrz(log, "Camera nitidez", `Tentativa ${tentativa}; escolhido frame ${captura.index + 1}/${captura.total}; score=${captura.score}.`);
-        adicionarLogMrz(log, "Pipeline dinamico", "ocrb-manual-shadow-local-soft");
+        adicionarLogMrz(log, "Deteccao dinamica", `ROI encontrada antes da etapa 3 completa${deteccao.warning ? `; aviso: ${deteccao.warning}` : ""}.`);
         adicionarDebugEntradaMrz(log, imagem, {
           origem: "camera dinamica",
           debugCamera: {
@@ -714,9 +716,6 @@ async function executarLeituraDinamicaDocumento(runId) {
             }
           }
         });
-        if (resultado.results?.length) {
-          adicionarLogMrz(log, "Resultado dinamico", resultado.results.map(item => `${item.pipelineName}: ${item.trust?.label || item.error || "sem estado"}`).join(" | "));
-        }
         if (resultadoFinal.results?.length) {
           adicionarLogMrz(log, "Resultado etapa 3 completa", resultadoFinal.results.map(item => `${item.pipelineName}: ${item.trust?.label || item.error || "sem estado"}`).join(" | "));
         }
@@ -724,11 +723,11 @@ async function executarLeituraDinamicaDocumento(runId) {
         mrzLeituraDinamicaAtiva = false;
         mrzLeituraDinamicaId++;
         atualizarBotaoLeituraDinamica();
-        finalizarLeituraMrz(resultadoRobusto.text || resultadoRobusto.rawText || "", resultadoRobusto.formData, log);
+        finalizarLeituraMrz(resultadoFinal.text || resultadoFinal.rawText || "", resultadoFinal.formData, log);
         return;
       }
 
-      adicionarLogDinamicoMrz("Falhou", `#${tentativa}: sem MRZ valida. Continua para a proxima tentativa.`);
+      adicionarLogDinamicoMrz("Falhou", `#${tentativa}: nenhuma zona MRZ confiavel encontrada${deteccao.warning ? ` (${deteccao.warning})` : ""}. Continua.`);
       if (tentativa >= 10) {
         encerrarLeituraDinamicaPorLimite();
         return;
@@ -758,12 +757,36 @@ function encerrarLeituraDinamicaPorLimite() {
   atualizarEstadoMrz("Nao foi possivel ler automaticamente. Faca upload de uma foto ou preencha manualmente.");
 }
 
-function mostrarImagemDinamicaFinalMrz(canvas) {
+async function reiniciarCameraLeituraDinamicaDocumento() {
+  if (!mrzLeituraDinamicaAtiva) return;
+  adicionarLogDinamicoMrz("Camera", "A reabrir preview da camera para nova procura de zona.");
+  await iniciarCameraDocumento();
+  const video = document.getElementById("mrz-video");
+  await aguardarVideoProntoMrz(video);
+  focarCameraDocumento();
+}
+
+function mostrarImagemDinamicaFinalMrz(canvas, label = "Frame recortado usado na etapa 3 completa") {
   if (!MRZ_SHOW_DEBUG_LOG || !canvas) return;
   document.querySelector(".mrz-log-images")?.remove();
   const log = mrzLeituraDinamicaLog || criarLogDinamicoMrz();
-  adicionarImagemLogMrz(log, "Frame recortado usado na etapa 3 completa", canvas.toDataURL("image/png"));
+  adicionarImagemLogMrz(log, label, canvas.toDataURL("image/png"));
   mostrarImagensLogMrz(log);
+}
+
+function criarCanvasRoiMrz(canvas, roi) {
+  if (!canvas || !roi) return null;
+  const x = Math.max(0, Math.round(roi.x || 0));
+  const y = Math.max(0, Math.round(roi.y || 0));
+  const width = Math.min(canvas.width - x, Math.max(1, Math.round(roi.w || roi.width || canvas.width)));
+  const height = Math.min(canvas.height - y, Math.max(1, Math.round(roi.h || roi.height || canvas.height)));
+  const out = document.createElement("canvas");
+  const ctx = out.getContext("2d");
+
+  out.width = width;
+  out.height = height;
+  ctx.drawImage(canvas, x, y, width, height, 0, 0, width, height);
+  return out;
 }
 
 async function capturarFotoDocumento() {

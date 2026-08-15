@@ -3546,5 +3546,27 @@ async function readStage3Mrz(file, options = {}) {
   };
 }
 
-window.MrzStage3Reader = { read: readStage3Mrz };
+async function detectStage3Roi(file, options = {}) {
+  stage3ReaderOptions = options;
+  const img = await loadImage(file);
+  const testCase = {
+    id: String(Date.now() + Math.random()),
+    file,
+    truth: "",
+    results: [],
+    roi: { x: 3, y: 58, w: 94, h: 32 }
+  };
+  const roi = await getRoi(img, "twoPhase", testCase);
+  const warning = testCase.roiWarning || "";
+  const found = Boolean(roi) && !/fallback|usado fallback|sem banda|sem componentes/i.test(warning);
+
+  return {
+    found,
+    roi,
+    imageSize: testCase.imageSize || { width: img.naturalWidth, height: img.naturalHeight },
+    warning
+  };
+}
+
+window.MrzStage3Reader = { read: readStage3Mrz, detectRoi: detectStage3Roi };
 })();
