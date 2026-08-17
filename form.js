@@ -115,16 +115,14 @@ function atualizarTraducoes() {
 
 function atualizarTextosMrz(t) {
   const textos = {
-    "btn-ler-documento": t.lerDocumento,
+    "btn-ler-documento": t.scanDocumento || t.lerDocumento,
     "mrz-title": t.mrzTitulo,
-    "mrz-subtitle": t.mrzSubtitulo,
+    "scan-instr-1": t.scanInstr1,
+    "scan-instr-2": t.scanInstr2,
+    "scan-instr-3": t.scanInstr3,
+    "btn-scan-ok": t.ok,
     "btn-upload-foto": t.uploadFoto,
-    "btn-usar-camera": t.usarCamera,
     "btn-trocar-camera": t.trocarCamera,
-    "btn-capturar-foto": t.capturarFoto,
-    "btn-leitura-dinamica": mrzLeituraDinamicaAtiva
-      ? (t.pararLeituraDinamica || "Parar leitura")
-      : (t.leituraDinamica || "Leitura dinamica"),
     "mrz-progress-label": t.progresso
   };
 
@@ -136,11 +134,10 @@ function atualizarTextosMrz(t) {
     else el.textContent = texto;
   });
 
-  const close = document.querySelector(".mrz-close");
-  if (close) {
+  document.querySelectorAll(".mrz-close").forEach(close => {
     close.setAttribute("aria-label", t.fechar || "Sair");
     close.textContent = t.fechar || "Sair";
-  }
+  });
 
   const guideImage = document.querySelector(".mrz-instructions img");
   if (guideImage) guideImage.setAttribute("alt", t.mrzImagemAlt || "Exemplo da zona MRZ no documento");
@@ -239,26 +236,41 @@ function preencherPaisesRelacionados() {
 
 function abrirLeitorDocumento() {
   const modal = document.getElementById("mrz-modal");
-  const result = document.getElementById("mrz-result");
-  const actions = modal?.querySelector(".mrz-actions");
-  const instructions = modal?.querySelector(".mrz-instructions");
-
   if (!modal) return;
+
   document.getElementById("mrz-form-alert")?.setAttribute("hidden", "");
   document.querySelector(".mrz-log-images")?.remove();
   mrzLeituraDinamicaLog = null;
-  if (actions) actions.hidden = false;
+
+  const instructions = document.getElementById("scan-instructions");
+  const camera = document.getElementById("mrz-camera");
+  const msg = document.getElementById("scan-message");
   if (instructions) instructions.hidden = false;
+  if (camera) camera.hidden = true;
+  if (msg) msg.hidden = true;
+
   modal.classList.add("is-open");
   modal.setAttribute("aria-hidden", "false");
   atualizarEstadoMrz("");
   atualizarProgressoMrz(0);
   mostrarProgressoMrz(false);
   esconderRecorteManualMrz();
+  const result = document.getElementById("mrz-result");
   if (result) {
     result.hidden = true;
     result.textContent = "";
   }
+  focarTopoLeitorDocumento();
+}
+
+async function iniciarScanCamera() {
+  const instructions = document.getElementById("scan-instructions");
+  const msg = document.getElementById("scan-message");
+  const camera = document.getElementById("mrz-camera");
+  if (instructions) instructions.hidden = true;
+  if (msg) msg.hidden = true;
+  if (camera) camera.hidden = false;
+  await iniciarLeituraDinamicaDocumento();
 }
 
 function fecharLeitorDocumento() {
@@ -620,7 +632,7 @@ async function executarLeituraDinamicaDocumento(runId) {
       } else {
         atualizarEstadoMrz(`Leitura dinamica: tentativa ${tentativa}...`);
       }
-      if (tentativa > 10) {
+      if (tentativa > 5) {
         encerrarLeituraDinamicaPorLimite();
         return;
       }
@@ -680,7 +692,7 @@ async function executarLeituraDinamicaDocumento(runId) {
 
         if (!resultadoFinal.ok || !resultadoFinal.formData) {
           adicionarLogDinamicoMrz("Falhou", `#${tentativa}: etapa 3 completa falhou. A voltar ao preview e continuar.`);
-          if (tentativa >= 10) {
+          if (tentativa >= 5) {
             encerrarLeituraDinamicaPorLimite();
             return;
           }
@@ -728,7 +740,7 @@ async function executarLeituraDinamicaDocumento(runId) {
       }
 
       adicionarLogDinamicoMrz("Falhou", `#${tentativa}: nenhuma zona MRZ confiavel encontrada${deteccao.warning ? ` (${deteccao.warning})` : ""}. Continua.`);
-      if (tentativa >= 10) {
+      if (tentativa >= 5) {
         encerrarLeituraDinamicaPorLimite();
         return;
       }
@@ -737,7 +749,7 @@ async function executarLeituraDinamicaDocumento(runId) {
     } catch (error) {
       console.info("Leitura dinamica sem resultado:", error);
       adicionarLogDinamicoMrz("Falhou", `#${tentativa}: ${error?.message || String(error)}. Continua.`);
-      if (tentativa >= 10) {
+      if (tentativa >= 5) {
         encerrarLeituraDinamicaPorLimite();
         return;
       }
@@ -748,13 +760,21 @@ async function executarLeituraDinamicaDocumento(runId) {
 }
 
 function encerrarLeituraDinamicaPorLimite() {
-  adicionarLogDinamicoMrz("Limite", "10 tentativas sem leitura valida. A fechar camera.");
+  const t = traducoes[linguaAtual] || traducoes.pt;
+  adicionarLogDinamicoMrz("Limite", "5 tentativas sem leitura valida. A fechar camera.");
   mrzLeituraDinamicaAtiva = false;
   mrzLeituraDinamicaId++;
   atualizarBotaoLeituraDinamica();
   pararCameraDocumento();
   mostrarProgressoMrz(false);
-  atualizarEstadoMrz("Nao foi possivel ler automaticamente. Faca upload de uma foto ou preencha manualmente.");
+  const instructions = document.getElementById("scan-instructions");
+  if (instructions) instructions.hidden = false;
+  const msg = document.getElementById("scan-message");
+  if (msg) {
+    msg.textContent = t.scanNaoEncontrado || "O documento não foi encontrado.";
+    msg.hidden = false;
+  }
+  focarTopoLeitorDocumento();
 }
 
 async function reiniciarCameraLeituraDinamicaDocumento() {
@@ -1434,12 +1454,12 @@ function dividirLinhaMrzColada(linha) {
 function finalizarLeituraMrz(texto, dados, log) {
   preencherCamposComMrz(dados);
   adicionarLogMrz(log, "Preenchimento", "Campos substituidos no formulario.");
-  adicionarLogMrz(log, "Debug", "Popup mantido aberto apos sucesso para inspecao das imagens e logs.");
   mostrarTextoMrz(texto, dados, log);
   atualizarProgressoMrz(100);
   atualizarEstadoMrz("");
   esconderRecorteManualMrz();
   mostrarAvisoReverDadosMrz();
+  fecharLeitorDocumento();
 }
 
 function mostrarAvisoReverDadosMrz() {

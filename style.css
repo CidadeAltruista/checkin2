@@ -815,3 +815,130 @@ select {
     flex: 1;
   }
 }
+
+/* ===== Novo fluxo guiado de leitura (Scan Documento) ===== */
+
+/* STEP 1: Instrucoes */
+.scan-instructions {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.scan-guide {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  padding: 26px 22px 46px;
+}
+
+.scan-instr-list {
+  margin: 0;
+  padding: 0 0 0 22px;
+  max-width: 460px;
+  width: 100%;
+  color: #364546;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.scan-instr-list li {
+  margin-bottom: 10px;
+}
+
+.scan-ok {
+  width: min(100%, 460px);
+  min-height: 54px;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.scan-message {
+  max-width: 460px;
+  width: 100%;
+  margin: 0;
+  text-align: center;
+}
+
+/* STEP 2: Camera fullscreen */
+.mrz-camera.scan-camera {
+  position: fixed;
+  inset: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+  z-index: 1;
+}
+
+.mrz-camera.scan-camera .scan-exit {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 6;
+  min-width: 82px;
+}
+
+.mrz-camera.scan-camera .mrz-video-wrap {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  border-radius: 0;
+  aspect-ratio: auto;
+}
+
+.mrz-camera.scan-camera video {
+  object-fit: cover;
+}
+
+.mrz-camera.scan-camera .scan-status {
+  position: absolute;
+  top: 72px;
+  left: 16px;
+  right: 16px;
+  margin: 0;
+  z-index: 5;
+  background: rgba(0, 0, 0, 0.55);
+  border-color: transparent;
+  color: #fff;
+  text-align: center;
+}
+
+.mrz-camera.scan-camera .scan-progress {
+  position: absolute;
+  top: 128px;
+  left: 16px;
+  right: 16px;
+  margin: 0;
+  z-index: 5;
+}
+
+.mrz-camera.scan-camera .scan-camera-actions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.72));
+  z-index: 6;
+}
+
+.mrz-camera.scan-camera .scan-camera-actions button {
+  min-height: 52px;
+}
+
+
+/* Garante que o atributo hidden continua a ocultar estes containers flex */
+.scan-instructions[hidden],
+.mrz-camera.scan-camera[hidden] {
+  display: none;
+}
+

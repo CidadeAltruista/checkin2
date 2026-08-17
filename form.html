@@ -19,60 +19,67 @@
 
   <div id="mrz-modal" class="mrz-modal" aria-hidden="true">
     <div class="mrz-dialog" role="dialog" aria-modal="true" aria-labelledby="mrz-title">
-      <div class="mrz-header">
-        <div>
-          <h3 id="mrz-title">Ler documento</h3>
-          <p id="mrz-subtitle">→ Aponte a camera para que a zona MRZ ocupe a moldura.
-→ No upload, envie uma foto onde as linhas MRZ estejam bem visiveis.</p>
+      <!-- STEP 1: Instrucoes -->
+      <div id="scan-instructions" class="scan-instructions">
+        <div class="mrz-header">
+          <div>
+            <h3 id="mrz-title">Scan Documento</h3>
+          </div>
+          <button type="button" class="mrz-close" onclick="fecharLeitorDocumento()" aria-label="Fechar">Sair</button>
         </div>
-        <button type="button" class="mrz-close" onclick="fecharLeitorDocumento()" aria-label="Fechar">Sair</button>
-      </div>
 
-      <div class="mrz-instructions">
-        <img src="mrz-guide.png" alt="Exemplo da zona MRZ no documento">
-      </div>
+        <div class="scan-guide">
+          <ul class="scan-instr-list">
+            <li id="scan-instr-1">Aponte a câmera para o documento</li>
+            <li id="scan-instr-2">A zona MRZ (código de texto, conforme a imagem) deve estar bem visível</li>
+            <li id="scan-instr-3">Troque de câmera se necessário</li>
+          </ul>
 
-      <p id="mrz-status" class="mrz-status" hidden></p>
+          <div class="mrz-instructions">
+            <img src="mrz-guide.png" alt="Exemplo da zona MRZ no documento">
+          </div>
 
-      <div class="mrz-actions">
-        <button type="button" id="btn-upload-foto" class="icon-button" onclick="selecionarFotoDocumento()">
-          <span class="button-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24"><path d="M12 3 7 8h3v6h4V8h3l-5-5ZM5 17h14v3H5v-3Z"/></svg>
-          </span>
-          <span>Upload da foto</span>
-        </button>
-        <button type="button" id="btn-usar-camera" class="icon-button" onclick="iniciarCameraDocumento()">
-          <span class="button-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4V8Zm8 9a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/></svg>
-          </span>
-          <span>Usar camera</span>
-        </button>
-        <button type="button" id="btn-leitura-dinamica" class="icon-button" onclick="alternarLeituraDinamicaDocumento()">
-          <span class="button-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 1 8.95 8H18.9A7 7 0 1 0 17 16.9V14h2v6h-6v-2h2.45A9 9 0 1 1 12 3Zm-1 5h2v5h-2V8Zm0 7h2v2h-2v-2Z"/></svg>
-          </span>
-          <span>Leitura dinâmica</span>
-        </button>
+          <p id="scan-message" class="mrz-status is-error scan-message" hidden></p>
+
+          <button type="button" id="btn-scan-ok" class="icon-button scan-ok" onclick="iniciarScanCamera()">
+            <span class="button-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2Z"/></svg>
+            </span>
+            <span>OK</span>
+          </button>
+        </div>
       </div>
 
       <input type="file" id="mrz-file-input" accept="image/*" hidden>
 
-      <div id="mrz-camera" class="mrz-camera" hidden>
+      <!-- STEP 2: Camera fullscreen -->
+      <div id="mrz-camera" class="mrz-camera scan-camera" hidden>
+        <button type="button" class="mrz-close scan-exit" onclick="fecharLeitorDocumento()" aria-label="Fechar">Sair</button>
         <div class="mrz-video-wrap">
           <video id="mrz-video" playsinline autoplay muted></video>
         </div>
-        <div class="mrz-camera-actions">
+        <p id="mrz-status" class="mrz-status scan-status" hidden></p>
+        <div class="mrz-progress scan-progress" aria-live="polite" hidden>
+          <div class="mrz-progress-top">
+            <span id="mrz-progress-label">Progresso</span>
+            <span id="mrz-progress-percent">0%</span>
+          </div>
+          <div class="mrz-progress-track">
+            <div id="mrz-progress-bar" class="mrz-progress-bar"></div>
+          </div>
+        </div>
+        <div class="mrz-camera-actions scan-camera-actions">
           <button type="button" id="btn-trocar-camera" class="icon-button" onclick="trocarCameraDocumento()" hidden>
             <span class="button-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24"><path d="M7 7h7.5a4.5 4.5 0 0 1 0 9H9v3l-5-5 5-5v3h5.5a1.5 1.5 0 0 0 0-3H7V7Zm10-2h-5.5a4.5 4.5 0 0 0 0 9H17v3l5-5-5-5v3h-5.5a1.5 1.5 0 0 1 0-3H17V5Z"/></svg>
             </span>
             <span>Trocar camera</span>
           </button>
-          <button type="button" id="btn-capturar-foto" class="icon-button" onclick="capturarFotoDocumento()">
+          <button type="button" id="btn-upload-foto" class="icon-button" onclick="selecionarFotoDocumento()">
             <span class="button-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="M12 17.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9ZM3 7h3l2-3h8l2 3h3v13H3V7Z"/></svg>
+              <svg viewBox="0 0 24 24"><path d="M12 3 7 8h3v6h4V8h3l-5-5ZM5 17h14v3H5v-3Z"/></svg>
             </span>
-            <span>Capturar foto</span>
+            <span>Upload da foto</span>
           </button>
         </div>
       </div>
@@ -95,15 +102,6 @@
           </span>
           <span>Ler area selecionada</span>
         </button>
-      </div>
-      <div class="mrz-progress" aria-live="polite" hidden>
-        <div class="mrz-progress-top">
-          <span id="mrz-progress-label">Progresso</span>
-          <span id="mrz-progress-percent">0%</span>
-        </div>
-        <div class="mrz-progress-track">
-          <div id="mrz-progress-bar" class="mrz-progress-bar"></div>
-        </div>
       </div>
       <pre id="mrz-result" class="mrz-result" hidden></pre>
     </div>
