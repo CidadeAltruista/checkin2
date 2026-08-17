@@ -248,6 +248,7 @@ function abrirLeitorDocumento() {
   if (instructions) instructions.hidden = false;
   if (camera) camera.hidden = true;
   if (msg) msg.hidden = true;
+  mostrarInstrucoesMrz();
 
   modal.classList.add("is-open");
   modal.setAttribute("aria-hidden", "false");

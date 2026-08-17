@@ -225,7 +225,8 @@ button:disabled {
 .mrz-dialog {
   width: 100%;
   height: 100vh;
-  max-height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
   overflow: auto;
   border-radius: 0;
   border: 0;
@@ -823,6 +824,7 @@ select {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .scan-guide {
@@ -830,23 +832,33 @@ select {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 22px;
-  padding: 26px 22px 46px;
+  justify-content: flex-start;
+  gap: 14px;
+  padding: 16px 22px 26px;
 }
 
 .scan-instr-list {
   margin: 0;
-  padding: 0 0 0 22px;
+  padding: 0;
   max-width: 460px;
   width: 100%;
   color: #364546;
-  font-size: 16px;
+  font-size: 18px;
   line-height: 1.6;
+  list-style: none;
+  counter-reset: scan-instr;
+  text-align: center;
 }
 
 .scan-instr-list li {
-  margin-bottom: 10px;
+  counter-increment: scan-instr;
+  margin-bottom: 8px;
+}
+
+.scan-instr-list li::before {
+  content: counter(scan-instr) ". ";
+  font-weight: 800;
+  color: var(--teal-dark, #2c5f5f);
 }
 
 .scan-ok {
@@ -866,18 +878,24 @@ select {
 /* STEP 2: Camera fullscreen */
 .mrz-camera.scan-camera {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100vh;
+  height: 100dvh;
   padding: 0;
   display: flex;
   flex-direction: column;
   background: #000;
+  overflow: hidden;
   z-index: 1;
 }
 
 .mrz-camera.scan-camera .scan-exit {
   position: absolute;
   top: 14px;
-  right: 14px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 6;
   min-width: 82px;
 }
