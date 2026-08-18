@@ -57,6 +57,14 @@
       <button type="button" id="btn-upload-foto" class="icon-button" onclick="escolherFoto()">Upload da foto</button>
     </div>
     <input type="file" id="mrz-file-input" accept="image/*" hidden>
+
+    <div id="img-gallery" class="img-gallery" hidden>
+      <div class="img-gallery-header">
+        <h3>Imagens do processo (última tentativa)</h3>
+        <button type="button" class="mrz-close" onclick="fecharGaleria()">Fechar</button>
+      </div>
+      <div id="img-gallery-grid" class="img-gallery-grid"></div>
+    </div>
   </div>
 </body>
 </html>

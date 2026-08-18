@@ -12,6 +12,7 @@
   let tentativa = 0;
   let testarStop = false;
   let passos = [];
+  let imagensTeste = [];
   const MAX_TENTATIVAS = 10;
   const ESPERA_OPENCV_LIMITE_MS = 8000;
   const ANGULOS = [0, 90, 180, 270];
@@ -72,11 +73,43 @@
   }
   function atraso(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-  function limparPassos() { passos = []; }
+  function limparPassos() { passos = []; imagensTeste = []; }
   function logPasso(msg) {
     passos.push(msg);
     console.log("[camera-test] " + msg);
   }
+
+  function adicionarImagem(label, canvas) {
+    if (!canvas) return;
+    imagensTeste.push({ label, url: canvas.toDataURL("image/png") });
+  }
+  function snapshotMatToCanvas(mat) {
+    const c = document.createElement("canvas");
+    cv.imshow(c, mat);
+    return c;
+  }
+  function mostrarGaleria() {
+    const gal = $("img-gallery");
+    const grid = $("img-gallery-grid");
+    if (!gal || !grid) return;
+    grid.innerHTML = "";
+    for (const item of imagensTeste) {
+      const fig = document.createElement("figure");
+      const img = document.createElement("img");
+      img.src = item.url;
+      const cap = document.createElement("figcaption");
+      cap.textContent = item.label;
+      fig.appendChild(img);
+      fig.appendChild(cap);
+      grid.appendChild(fig);
+    }
+    gal.hidden = false;
+  }
+  function fecharGaleria() {
+    const gal = $("img-gallery");
+    if (gal) gal.hidden = true;
+  }
+  window.fecharGaleria = fecharGaleria;
 
   /* ---- Câmara ---- */
   async function abrirCamera() {
@@ -242,11 +275,25 @@
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
     cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
     cv.Canny(blurred, edges, 50, 150);
+    adicionarImagem("Filtro: grayscale", snapshotMatToCanvas(gray));
+    adicionarImagem("Filtro: edges (Canny)", snapshotMatToCanvas(edges));
 
     const contours = new cv.MatVector();
     const hierarchy = new cv.Mat();
     cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
     console.log(`[camera-test] Contornos detetados: ${contours.size()}`);
+
+    const overlay = document.createElement("canvas");
+    overlay.width = workCanvas.width;
+    overlay.height = workCanvas.height;
+    overlay.getContext("2d").drawImage(workCanvas, 0, 0);
+    const overlayMat = cv.imread(overlay);
+    for (let i = 0; i < contours.size(); i++) {
+      cv.drawContours(overlayMat, contours, i, new cv.Scalar(0, 255, 0, 255), 2);
+    }
+    cv.imshow(overlay, overlayMat);
+    overlayMat.delete();
+    adicionarImagem(`Contornos (${contours.size()})`, overlay);
 
     const areaTotal = workCanvas.width * workCanvas.height;
     let melhor = null;
@@ -366,6 +413,7 @@
       if (testarStop) return { found: false };
       testadas++;
       const rot = rotacionarCanvas(base, graus);
+      adicionarImagem(`Rotação ${graus}°`, rot);
       const blob = await canvasToBlob(rot);
       blob.name = `${origem}-rota-${graus}.png`;
       console.log(`[camera-test] A testar rotação ${graus}° (${origem})...`);
@@ -405,6 +453,7 @@
     testarStop = true;
     mostrarLaser(false);
     mostrarCaptura(rot);
+    adicionarImagem(`Imagem lida (rotação ${graus}°)`, rot);
     logPasso(`ROI encontrada na rotação ${graus}°. A ler o documento completo...`);
     setStatus("A descodificar...");
     mostrarProgresso(true);
@@ -414,8 +463,9 @@
     // tal como o fluxo de produção faz com o frame inteiro.
     const blob = await canvasToBlob(rot);
     blob.name = `rotacao-${graus}-completa.png`;
+    let resultado = null;
     try {
-      const resultado = await window.MrzStage3Reader.read(blob, {
+      resultado = await window.MrzStage3Reader.read(blob, {
         lang: "ocrb", langPath: "./tessdata",
         roiLang: "ocrb", roiLangPath: "./tessdata",
         roiTimeoutMs: 8000, timeoutMs: 25000,
@@ -437,7 +487,14 @@
       console.warn("[camera-test] read falhou:", e);
       setStatus("Erro na descodificação.");
     }
+    // recolhe os cortes/ROI internos da leitura
+    if (resultado && resultado.debugImages) {
+      for (const d of resultado.debugImages) {
+        if (d && d.url) imagensTeste.push({ label: `[leitura] ${d.label || "corte"}`, url: d.url });
+      }
+    }
     mostrarProgresso(false);
+    mostrarGaleria();
   }
 
   /* Fallback: ao fim de 5 tentativas sem quadrilátero, usa a imagem completa (sem warp) */
@@ -456,6 +513,7 @@
     } else {
       setStatus("Documento não encontrado.");
       mostrarLaser(false);
+      mostrarGaleria();
     }
   }
 
@@ -490,6 +548,7 @@
       setStatus("Sem frame da câmara.");
       return;
     }
+    adicionarImagem("Frame mais nítido", canvas);
 
     // 2) identifica quadrilátero (barato)
     let cantos = null;
@@ -508,6 +567,7 @@
       const aspect = aspectoQuadrilatero(cantos);
       setStatus("Documento encontrado. A endireitar (warp)...");
       base = warpCanvas(canvas, cantos, aspect);
+      adicionarImagem("Warp (documento endireitado)", base);
       warpOk = true;
       foundCandidate = true;
       logPasso(`Quadrilátero detetado (aspect=${aspect.toFixed(2)}); aplicado warp.`);
@@ -554,6 +614,7 @@
       } else {
         setStatus("Documento não encontrado.");
         mostrarLaser(false);
+        mostrarGaleria();
       }
     }
   }
