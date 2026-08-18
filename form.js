@@ -662,7 +662,7 @@ async function executarLeituraDinamicaDocumento(runId) {
         langPath: "./tessdata",
         roiLang: "ocrb",
         roiLangPath: "./tessdata",
-        roiTimeoutMs: 3500,
+        roiTimeoutMs: 2000,
         onStatus: mensagem => {
           if (mensagem) adicionarLogDinamicoMrz("Deteccao", `#${tentativa}: ${mensagem}`);
         }

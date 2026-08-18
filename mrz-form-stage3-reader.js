@@ -1,4 +1,4 @@
-﻿(function () {
+(function () {
 let stage3ReaderOptions = {};
 const state = {
   cases: [],
@@ -2445,7 +2445,7 @@ function pixelRoiLabel(roi, size) {
 async function detectTwoPhaseOcrbRoi(img) {
   const candidates = generateMorphologyLineCandidates(img)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 18)
+    .slice(0, 10)
     .sort((a, b) => a.roi.y - b.roi.y);
 
   if (!candidates.length) {
@@ -2457,28 +2457,41 @@ async function detectTwoPhaseOcrbRoi(img) {
     };
   }
 
-  const worker = await getRoiOcrWorker();
+  const pool = await getRoiOcrWorkerPool(3);
   const timeoutMs = getRoiOcrConfig().timeoutMs;
   const validated = [];
+  let sequence = [];
 
-  for (const candidate of candidates) {
-    const roi = expandPixelRoi(candidate.roi, img, { x: 0.01, yTop: 0.006, yBottom: 0.006 });
-    const blob = await cropRoiToBlob(img, roi, { targetWidth: 1200, grayscale: true, sharpen: true });
-    const ocr = await withTimeout(
-      worker.recognize(blob),
-      timeoutMs,
-      "Timeout OCR-B ao validar linha candidata."
-    );
-    const text = normalizeCandidateMrzText(ocr?.data?.text || "");
-    const validationScore = mrzLineValidationScore(text);
-    if (validationScore > 0) {
-      validated.push({ ...candidate, roi, text, score: candidate.score + text.length * 12 + validationScore });
+  // Valida em lotes paralelos (um por worker) com saida antecipada:
+  // assim que houver uma sequencia MRZ de 2-3 linhas, para de validar o resto.
+  for (let i = 0; i < candidates.length; i += pool.length) {
+    const batch = candidates.slice(i, i + pool.length);
+    const results = await Promise.all(batch.map(async (candidate, j) => {
+      const roi = expandPixelRoi(candidate.roi, img, { x: 0.01, yTop: 0.006, yBottom: 0.006 });
+      const blob = await cropRoiToBlob(img, roi, { targetWidth: 1200, grayscale: true, sharpen: true });
+      const worker = pool[j % pool.length];
+      const ocr = await withTimeout(
+        worker.recognize(blob),
+        timeoutMs,
+        "Timeout OCR-B ao validar linha candidata."
+      );
+      const text = normalizeCandidateMrzText(ocr?.data?.text || "");
+      const validationScore = mrzLineValidationScore(text);
+      return validationScore > 0
+        ? { ...candidate, roi, text, score: candidate.score + text.length * 12 + validationScore }
+        : null;
+    }));
+
+    for (const r of results) {
+      if (r) validated.push(r);
     }
+
+    sequence = chooseValidatedMrzSequence(validated, img);
+    if (sequence.length) break;
   }
 
-  const sequence = chooseValidatedMrzSequence(validated, img);
   if (!sequence.length) {
-    const passportFallback = await detectPassportBottomOcrFallback(img, worker, timeoutMs);
+    const passportFallback = await detectPassportBottomOcrFallback(img, pool[0], timeoutMs);
     if (passportFallback) return passportFallback;
 
     const fallback = detectBottomTextBandRoi(img);
@@ -3416,13 +3429,10 @@ function clamp(value) {
   return Math.max(0, Math.min(255, value));
 }
 
-/* Final final stage 3 override: keep ROI OCR worker separate from reading OCR worker. */
-async function getRoiOcrWorker() {
+/* Final final stage 3 override: keep ROI OCR workers separate from reading OCR worker. */
+async function createRoiWorker() {
   await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js");
   const config = getRoiOcrConfig();
-  const key = `roi:${config.lang}|${config.langPath}`;
-  if (state.workers.has(key)) return state.workers.get(key);
-
   setStatus(`A carregar OCR de deteccao ${config.lang} em ${config.langPath}...`);
   const worker = await withTimeout(
     Tesseract.createWorker(config.lang, 1, {
@@ -3439,8 +3449,32 @@ async function getRoiOcrWorker() {
     user_defined_dpi: "300",
     preserve_interword_spaces: "1"
   });
+  return worker;
+}
+
+async function getRoiOcrWorker() {
+  await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js");
+  const config = getRoiOcrConfig();
+  const key = `roi:${config.lang}|${config.langPath}`;
+  if (state.workers.has(key)) return state.workers.get(key);
+  const worker = await createRoiWorker();
   state.workers.set(key, worker);
   return worker;
+}
+
+async function getRoiOcrWorkerPool(size = 3) {
+  const config = getRoiOcrConfig();
+  const baseKey = `roi:${config.lang}|${config.langPath}`;
+  const pool = [];
+  for (let i = 0; i < size; i++) {
+    const key = i === 0 ? baseKey : `${baseKey}:${i}`;
+    if (!state.workers.has(key)) {
+      const worker = await createRoiWorker();
+      state.workers.set(key, worker);
+    }
+    pool.push(state.workers.get(key));
+  }
+  return pool;
 }
 
 
