@@ -924,11 +924,11 @@ select {
 
 .mrz-camera.scan-camera .scan-captured {
   position: absolute;
-  top: 50%;
+  top: 0;
   left: 0;
   width: 100%;
-  height: auto;
-  transform: translateY(-50%);
+  height: 100%;
+  object-fit: contain;   /* mostra a imagem inteira, nunca cortada */
   background: #111;
 }
 

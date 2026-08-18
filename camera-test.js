@@ -12,7 +12,7 @@
   let tentativa = 0;
   let testarStop = false;
   let passos = [];
-  const MAX_TENTATIVAS = 5;
+  const MAX_TENTATIVAS = 10;
   const ESPERA_OPENCV_LIMITE_MS = 8000;
   const ANGULOS = [0, 90, 180, 270];
 
@@ -130,6 +130,7 @@
       stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: next.deviceId } }, audio: false });
       videoEl().srcObject = stream;
       await videoEl().play().catch(() => {});
+      tentativa = 0; // reinicia a contagem de tentativas ao trocar de câmara
     } catch (e) {
       console.warn("[camera-test] Não foi possível trocar de câmera:", e);
       setStatus("Não foi possível trocar de câmera.");
@@ -156,7 +157,7 @@
     $("mrz-camera").hidden = false;
     mostrarLaser(true);
     try {
-      await abrirCamera();
+      await reabrirCamera(); // desoculta o vídeo e esconde a imagem capturada ao abrir
     } catch (e) {
       setStatus("Não foi possível aceder à câmera. Usa o upload.");
       return;
@@ -480,10 +481,10 @@
     mostrarProgresso(false);
     mostrarLaser(true);
 
-    // 1) captura 3 frames e escolhe o mais nítido
+    // 1) captura N frames e escolhe o mais nítido
     let canvas;
     try {
-      canvas = await capturarFrameMaisNitido(3);
+      canvas = await capturarFrameMaisNitido(4);
     } catch (e) {
       console.warn("[camera-test] Sem frame da câmara:", e);
       setStatus("Sem frame da câmara.");
