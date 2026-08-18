@@ -295,21 +295,6 @@
     return out;
   }
 
-  /* ---- Replicação local de criarCanvasRoiMrz (ROI em pixéis) ---- */
-  function criarCanvasRoiMrzLocal(canvas, roi) {
-    if (!canvas || !roi) return null;
-    const x = Math.max(0, Math.round(roi.x || 0));
-    const y = Math.max(0, Math.round(roi.y || 0));
-    const width = Math.min(canvas.width - x, Math.max(1, Math.round(roi.w || roi.width || canvas.width)));
-    const height = Math.min(canvas.height - y, Math.max(1, Math.round(roi.h || roi.height || canvas.height)));
-    const out = document.createElement("canvas");
-    const ctx = out.getContext("2d");
-    out.width = width;
-    out.height = height;
-    ctx.drawImage(canvas, x, y, width, height, 0, 0, width, height);
-    return out;
-  }
-
   /* ---- Prepara a imagem base (warp ou original) ---- */
   function prepararBase(canvas) {
     let base = canvas;
@@ -384,26 +369,22 @@
     testarStop = true;
     mostrarLaser(false);
     mostrarCaptura(rot);
-    logPasso(`ROI encontrada na rotação ${graus}°.`);
+    logPasso(`ROI encontrada na rotação ${graus}°. A ler o documento completo...`);
     setStatus("A descodificar...");
     mostrarProgresso(true);
     setProgress(0);
 
-    const roiCanvas = criarCanvasRoiMrzLocal(rot, deteccao.roi);
-    if (!roiCanvas) {
-      logPasso("Falha ao recortar ROI.");
-      setStatus("Falha ao recortar ROI.");
-      mostrarProgresso(false);
-      return;
-    }
-
-    const blob = await canvasToBlob(roiCanvas);
-    blob.name = `roi-rot-${graus}.png`;
+    // O read espera a imagem completa (faz a sua própria deteção de ROI internamente),
+    // tal como o fluxo de produção faz com o frame inteiro.
+    const blob = await canvasToBlob(rot);
+    blob.name = `rotacao-${graus}-completa.png`;
     try {
       const resultado = await window.MrzStage3Reader.read(blob, {
         lang: "ocrb", langPath: "./tessdata",
         roiLang: "ocrb", roiLangPath: "./tessdata",
         roiTimeoutMs: 8000, timeoutMs: 25000,
+        debugImages: true,
+        onStatus: msg => { if (msg) logPasso(`[leitura] ${msg}`); },
         onProgress: p => setProgress((Number(p) || 0) <= 1 ? (Number(p) || 0) * 100 : Number(p) || 0)
       });
       const ok = Boolean(resultado?.ok);
