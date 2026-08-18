@@ -136,7 +136,9 @@
     testarStop = false;
     scanAtivo = true;
     tentativa = 0;
-    executarTentativa();
+    setStatus("A estabilizar câmera...");
+    await atraso(3000);
+    if (scanAtivo && !testarStop) executarTentativa();
   }
   window.iniciarScan = iniciarScan;
 
@@ -167,6 +169,7 @@
     const contours = new cv.MatVector();
     const hierarchy = new cv.Mat();
     cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    console.log(`[camera-test] Contornos detetados: ${contours.size()}`);
 
     const areaTotal = canvas.width * canvas.height;
     let melhor = null;
@@ -375,6 +378,17 @@
   /* ---- Loop de tentativas (câmara) ---- */
   async function executarTentativa() {
     if (!scanAtivo || testarStop) return;
+
+    // se o OpenCV ainda não está pronto, espera (não queima tentativas)
+    if (!cvReady) {
+      setStatus("A aguardar OpenCV...");
+      await atraso(300);
+      if (scanAtivo && !testarStop) {
+        setTimeout(executarTentativa, 100);
+      }
+      return;
+    }
+
     tentativa++;
     setStatus(`Tentativa ${tentativa}: a procurar documento...`);
     mostrarProgresso(false);
@@ -391,22 +405,16 @@
 
     const { base, warpOk, foundCandidate } = prepararBase(canvas);
 
-    // sem candidato (polígono) → continua a procurar na câmara
-    if (!foundCandidate) {
-      setStatus(`Tentativa ${tentativa}: sem candidato. A tentar de novo...`);
-      await atraso(300);
-      if (scanAtivo && !testarStop) {
-        if (tentativa < MAX_TENTATIVAS) executarTentativa();
-        else { setStatus("Documento não encontrado."); mostrarLaser(false); }
-      }
-      return;
+    // há quadrilátero → fecha a câmara e mostra a imagem endireitada
+    if (foundCandidate) {
+      fecharCamera();
+      mostrarLaser(false);
+      mostrarCaptura(base);
+      setStatus(`Tentativa ${tentativa}: candidato detetado. A testar rotações...`);
+    } else {
+      // sem quadrilátero → fallback: testa a imagem original, mantém a câmara aberta
+      setStatus(`Tentativa ${tentativa}: sem quadrilátero (fallback). A testar rotações...`);
     }
-
-    // candidato encontrado → fecha a câmara e mostra a imagem do documento
-    fecharCamera();
-    mostrarLaser(false);
-    mostrarCaptura(base);
-    setStatus(`Tentativa ${tentativa}: candidato detetado. A testar rotações...`);
     mostrarProgresso(false);
 
     const res = await testarRotacoes(base, warpOk, "camera");
@@ -417,13 +425,24 @@
       return;
     }
 
-    // candidato sem MRZ → volta à câmara e tenta outro
-    logPasso(`Candidato da tentativa ${tentativa} sem MRZ nas 4 rotações.`);
-    setStatus(`Tentativa ${tentativa}: candidato sem MRZ. A voltar à câmara...`);
-    await reabrirCamera();
+    logPasso(`Tentativa ${tentativa}: sem MRZ nas 4 rotações.`);
+    setStatus(`Tentativa ${tentativa}: sem resultado. A voltar à câmara...`);
+
+    // se a câmara tinha sido fechada (candidato), reabre
+    if (foundCandidate) {
+      await reabrirCamera();
+      await atraso(1000); // estabilização curta após reabrir
+    } else {
+      await atraso(400);
+    }
+
     if (scanAtivo && !testarStop) {
-      if (tentativa < MAX_TENTATIVAS) executarTentativa();
-      else { setStatus("Documento não encontrado."); mostrarLaser(false); }
+      if (tentativa < MAX_TENTATIVAS) {
+        executarTentativa();
+      } else {
+        setStatus("Documento não encontrado.");
+        mostrarLaser(false);
+      }
     }
   }
 
