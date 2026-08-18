@@ -118,6 +118,10 @@ button {
   font-size: 16px;
   font-weight: 800;
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
   transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
 }
 
@@ -127,6 +131,7 @@ button:hover {
 
 button:active {
   transform: translateY(1px);
+  transition-duration: 0ms;
 }
 
 button:focus-visible,
@@ -905,7 +910,7 @@ select {
   top: 56px;
   left: 4%;
   right: 4%;
-  bottom: 82px;
+  bottom: 64px;
   margin: 0;
   border-radius: 10px;
   overflow: hidden;
@@ -957,7 +962,7 @@ select {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
-  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
   background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.72));
   z-index: 6;
 }
@@ -971,5 +976,47 @@ select {
 .scan-instructions[hidden],
 .mrz-camera.scan-camera[hidden] {
   display: none;
+}
+
+/* Barra de progresso da leitura: texto e barra a branco sobre o fundo preto */
+.scan-progress .mrz-progress-top {
+  color: #FFFFFF;
+}
+.scan-progress .mrz-progress-track {
+  background: rgba(255, 255, 255, 0.28);
+}
+.scan-progress .mrz-progress-bar {
+  background: #FFFFFF;
+}
+
+/* Linha "laser scan" no preview (mostrada enquanto nao ha ROI) */
+.mrz-video-wrap .scan-laser {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 3;
+  animation: scan-laser 2.4s ease-in-out infinite;
+  will-change: transform;
+}
+.mrz-video-wrap .scan-laser::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.9) 50%, transparent 100%);
+  box-shadow: 0 0 12px 3px rgba(255, 255, 255, 0.55);
+}
+@keyframes scan-laser {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(calc(100% - 2px));
+  }
 }
 

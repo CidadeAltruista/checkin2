@@ -826,11 +826,23 @@ function pararStreamCameraDocumento() {
 function ocultarVideoPreviewDocumento() {
   const video = document.getElementById("mrz-video");
   if (video) video.hidden = true;
+  esconderLaserScan();
 }
 
 function mostrarVideoPreviewDocumento() {
   const video = document.getElementById("mrz-video");
   if (video) video.hidden = false;
+  mostrarLaserScan();
+}
+
+function mostrarLaserScan() {
+  const el = document.querySelector("#mrz-video-wrap .scan-laser");
+  if (el) el.hidden = false;
+}
+
+function esconderLaserScan() {
+  const el = document.querySelector("#mrz-video-wrap .scan-laser");
+  if (el) el.hidden = true;
 }
 
 function mostrarCapturaImagemMrz(canvas) {
