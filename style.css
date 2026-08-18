@@ -907,7 +907,7 @@ select {
 
 .mrz-camera.scan-camera .mrz-video-wrap {
   position: absolute;
-  top: 56px;
+  top: 112px;
   left: 4%;
   right: 4%;
   bottom: 64px;
@@ -934,7 +934,7 @@ select {
 
 .mrz-camera.scan-camera .scan-status {
   position: absolute;
-  top: 118px;
+  top: 124px;
   left: 16px;
   right: 16px;
   margin: 0;
@@ -947,7 +947,7 @@ select {
 
 .mrz-camera.scan-camera .scan-progress {
   position: absolute;
-  top: 128px;
+  top: 136px;
   left: 16px;
   right: 16px;
   margin: 0;
