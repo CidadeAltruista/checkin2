@@ -250,6 +250,9 @@ function abrirLeitorDocumento() {
   if (msg) msg.hidden = true;
   mostrarInstrucoesMrz();
 
+  const cabecalho = document.getElementById("cabecalho-info");
+  if (cabecalho) cabecalho.style.display = "none";
+
   modal.classList.add("is-open");
   modal.setAttribute("aria-hidden", "false");
   atualizarEstadoMrz("");
@@ -271,6 +274,8 @@ async function iniciarScanCamera() {
   if (instructions) instructions.hidden = true;
   if (msg) msg.hidden = true;
   if (camera) camera.hidden = false;
+  mostrarVideoPreviewDocumento();
+  esconderCapturaImagemMrz();
   await iniciarLeituraDinamicaDocumento();
 }
 
@@ -280,6 +285,8 @@ function fecharLeitorDocumento() {
   pararLeituraDinamicaDocumento();
   pararCameraDocumento(true);
   limparImagemManualMrz();
+  const cabecalho = document.getElementById("cabecalho-info");
+  if (cabecalho) cabecalho.style.display = "";
   if (modal) {
     modal.classList.remove("is-open");
     modal.setAttribute("aria-hidden", "true");
@@ -600,10 +607,11 @@ async function iniciarLeituraDinamicaDocumento(opcoes = {}) {
   const runId = ++mrzLeituraDinamicaId;
   atualizarBotaoLeituraDinamica();
   esconderInstrucoesMrz();
-  mostrarProgressoMrz(true);
+  mostrarProgressoMrz(false);
   atualizarProgressoMrz(0);
   adicionarLogDinamicoMrz("Espera", `Camera aberta. A aguardar ${Math.round(esperaInicialMs / 1000)} segundos para foco/exposicao estabilizarem.`);
-  atualizarEstadoMrz(`Leitura dinamica: a estabilizar camera por ${Math.round(esperaInicialMs / 1000)} segundos...`);
+  const tInicio = traducoes[linguaAtual] || traducoes.pt;
+  atualizarEstadoMrz((tInicio.scanAEstabilizar || `A estabilizar câmera por ${Math.round(esperaInicialMs / 1000)} segundos...`).replace("{s}", String(Math.round(esperaInicialMs / 1000))));
   await atrasoMrz(esperaInicialMs);
   if (!mrzLeituraDinamicaAtiva || runId !== mrzLeituraDinamicaId) return;
   adicionarLogDinamicoMrz("Arranque", "A iniciar tentativas continuas. So para com sucesso ou botao Parar leitura.");
@@ -627,11 +635,12 @@ async function executarLeituraDinamicaDocumento(runId) {
 
     try {
       if (!video || !video.videoWidth || !mrzStream) throw new Error("Camera indisponivel.");
+      const tLoop = traducoes[linguaAtual] || traducoes.pt;
       if (tentativa === 3) {
         adicionarLogDinamicoMrz("Sugestao", "#3: se a leitura continuar dificil, experimente trocar de camera.");
-        atualizarEstadoMrz("Leitura dinamica: tentativa 3. Se continuar dificil, experimente Trocar camera.");
+        atualizarEstadoMrz((tLoop.scanTentativaSugestao || "Tentativa 3.").replace("{n}", String(tentativa)));
       } else {
-        atualizarEstadoMrz(`Leitura dinamica: tentativa ${tentativa}...`);
+        atualizarEstadoMrz((tLoop.scanTentativa || "Tentativa {n}...").replace("{n}", String(tentativa)));
       }
       if (tentativa > 5) {
         encerrarLeituraDinamicaPorLimite();
@@ -661,9 +670,15 @@ async function executarLeituraDinamicaDocumento(runId) {
 
       if (deteccao.found && deteccao.roi) {
         adicionarLogDinamicoMrz("Zona encontrada", `#${tentativa}: ROI encontrada. A fechar camera e preparar leitura robusta.`);
-        pararCameraDocumento();
+        pararStreamCameraDocumento();
+        ocultarVideoPreviewDocumento();
         const roiCanvas = criarCanvasRoiMrz(captura.canvas, deteccao.roi);
+        mostrarCapturaImagemMrz(roiCanvas || captura.canvas);
         mostrarImagemDinamicaFinalMrz(roiCanvas || captura.canvas, "Zona MRZ recortada usada na etapa 3 completa");
+        const tCapt = traducoes[linguaAtual] || traducoes.pt;
+        atualizarEstadoMrz(tCapt.scanADecodificar || "A descodificar...");
+        mostrarProgressoMrz(true);
+        atualizarProgressoMrz(0);
         adicionarLogDinamicoMrz("Etapa 3 completa", `#${tentativa}: a ler OCR completo no frame capturado.`);
         let resultadoFinal;
         try {
@@ -780,6 +795,9 @@ function encerrarLeituraDinamicaPorLimite() {
 
 async function reiniciarCameraLeituraDinamicaDocumento() {
   if (!mrzLeituraDinamicaAtiva) return;
+  mostrarVideoPreviewDocumento();
+  esconderCapturaImagemMrz();
+  mostrarProgressoMrz(false);
   adicionarLogDinamicoMrz("Camera", "A reabrir preview da camera para nova procura de zona.");
   await iniciarCameraDocumento();
   const video = document.getElementById("mrz-video");
@@ -793,6 +811,41 @@ function mostrarImagemDinamicaFinalMrz(canvas, label = "Frame recortado usado na
   const log = mrzLeituraDinamicaLog || criarLogDinamicoMrz();
   adicionarImagemLogMrz(log, label, canvas.toDataURL("image/png"));
   mostrarImagensLogMrz(log);
+}
+
+function pararStreamCameraDocumento() {
+  if (mrzStream) {
+    mrzStream.getTracks().forEach(track => track.stop());
+    mrzStream = null;
+  }
+  const video = document.getElementById("mrz-video");
+  if (video) video.srcObject = null;
+  atualizarBotaoTrocarCamera();
+}
+
+function ocultarVideoPreviewDocumento() {
+  const video = document.getElementById("mrz-video");
+  if (video) video.hidden = true;
+}
+
+function mostrarVideoPreviewDocumento() {
+  const video = document.getElementById("mrz-video");
+  if (video) video.hidden = false;
+}
+
+function mostrarCapturaImagemMrz(canvas) {
+  const img = document.getElementById("mrz-captured");
+  if (!img || !canvas) return;
+  img.src = canvas.toDataURL("image/png");
+  img.hidden = false;
+}
+
+function esconderCapturaImagemMrz() {
+  const img = document.getElementById("mrz-captured");
+  if (img) {
+    img.hidden = true;
+    img.removeAttribute("src");
+  }
 }
 
 function criarCanvasRoiMrz(canvas, roi) {
@@ -2064,7 +2117,7 @@ function adicionarLogDinamicoMrz(etapa, detalhe) {
 function mostrarLogDinamicoMrz() {
   const result = document.getElementById("mrz-result");
   if (!result || !mrzLeituraDinamicaLog) return;
-  result.textContent = `AGORA: ${mrzLeituraDinamicaAcaoAtual || "A preparar leitura dinamica..."}\n\nLOG DE LEITURA DINAMICA\n${mrzLeituraDinamicaLog.join("\n")}`;
+  result.textContent = `AGORA: ${mrzLeituraDinamicaAcaoAtual || "A preparar..."}\n\nREGISTO DE LEITURA\n${mrzLeituraDinamicaLog.join("\n")}`;
   result.hidden = false;
   result.scrollTop = result.scrollHeight;
 }
