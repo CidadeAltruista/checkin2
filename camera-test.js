@@ -10,6 +10,7 @@
   let scanAtivo = false;
   let tentativa = 0;
   let testarStop = false;
+  let passos = [];
   const MAX_TENTATIVAS = 5;
   const ANGULOS = [0, 90, 180, 270];
 
@@ -59,6 +60,12 @@
   }
   function atraso(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+  function limparPassos() { passos = []; }
+  function logPasso(msg) {
+    passos.push(msg);
+    console.log("[camera-test] " + msg);
+  }
+
   /* ---- Câmara ---- */
   async function abrirCamera() {
     if (stream) stream.getTracks().forEach(t => t.stop());
@@ -67,11 +74,31 @@
     await videoEl().play().catch(() => {});
   }
 
+  function fecharCamera() {
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    const v = videoEl();
+    if (v) { v.srcObject = null; v.hidden = true; }
+  }
+
+  async function reabrirCamera() {
+    const img = $("mrz-captured");
+    if (img) img.hidden = true;
+    const v = videoEl();
+    if (v) v.hidden = false;
+    await abrirCamera();
+  }
+
+  function limparMemoria() {
+    const img = $("mrz-captured");
+    if (img) { img.removeAttribute("src"); img.hidden = true; }
+    limparPassos();
+  }
+
   function fecharScan() {
     testarStop = true;
     scanAtivo = false;
-    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-    videoEl().srcObject = null;
+    fecharCamera();
+    limparMemoria();
     $("mrz-camera").hidden = true;
     $("scan-instructions").hidden = false;
     $("scan-message").hidden = true;
@@ -237,22 +264,27 @@
     let base = canvas;
     let warpOk = false;
     let aspect = 0;
+    let foundCandidate = false;
     if (cvReady) {
+      setStatus("A detetar limites do documento...");
       try {
         const cantos = detectarQuadrilatero(canvas);
         if (cantos) {
           aspect = aspectoQuadrilatero(cantos);
+          setStatus("Documento encontrado. A endireitar (warp)...");
           base = warpCanvas(canvas, cantos, aspect);
           warpOk = true;
-          console.log(`[camera-test] Quadrilátero detetado (aspect=${aspect.toFixed(2)}); aplicado warp.`);
+          foundCandidate = true;
+          logPasso(`Quadrilátero detetado (aspect=${aspect.toFixed(2)}); aplicado warp.`);
         } else {
-          console.log("[camera-test] Sem quadrilátero confiante; usa imagem original (fallback).");
+          logPasso("Sem quadrilátero confiante nesta frame.");
         }
       } catch (e) {
         console.warn("[camera-test] Warp falhou; fallback para original:", e);
+        logPasso("Warp falhou; a usar imagem original.");
       }
     }
-    return { base, warpOk, aspect };
+    return { base, warpOk, aspect, foundCandidate };
   }
 
   /* ---- Testa as 4 rotações até encontrar ROI ---- */
@@ -287,18 +319,28 @@
 
 
   /* ---- Descodificação (Fase 3) ---- */
+  function formatarCampos(campos) {
+    if (!campos || typeof campos !== "object") return "(sem campos)";
+    const linhas = [];
+    for (const [k, v] of Object.entries(campos)) {
+      if (v && String(v).trim()) linhas.push(`${k}: ${v}`);
+    }
+    return linhas.length ? linhas.join("\n") : "(sem campos)";
+  }
+
   async function processarLeitura(rot, deteccao, graus, warpOk) {
     scanAtivo = false;
     testarStop = true;
     mostrarLaser(false);
     mostrarCaptura(rot);
+    logPasso(`ROI encontrada na rotação ${graus}°.`);
     setStatus("A descodificar...");
     mostrarProgresso(true);
     setProgress(0);
 
     const roiCanvas = criarCanvasRoiMrzLocal(rot, deteccao.roi);
     if (!roiCanvas) {
-      console.warn("[camera-test] Falha ao recortar ROI.");
+      logPasso("Falha ao recortar ROI.");
       setStatus("Falha ao recortar ROI.");
       mostrarProgresso(false);
       return;
@@ -314,9 +356,16 @@
         onProgress: p => setProgress((Number(p) || 0) <= 1 ? (Number(p) || 0) * 100 : Number(p) || 0)
       });
       const ok = Boolean(resultado?.ok);
+      logPasso(`Leitura Fase 3: ${ok ? "sucesso" : "falhou"}.`);
       console.log(`[camera-test] Resultado (rotação ${graus}°, warp=${warpOk}):`, resultado);
-      setStatus(ok ? `Documento lido com sucesso (rotação ${graus}°).` : `Não foi possível ler (rotação ${graus}°).`);
+      mostrarProgresso(false);
+      if (ok) {
+        setStatus("Passos:\n- " + passos.join("\n- ") + "\n\nCampos extraídos:\n" + formatarCampos(resultado.formData || resultado.dados));
+      } else {
+        setStatus(`Não foi possível ler (rotação ${graus}°).`);
+      }
     } catch (e) {
+      logPasso("Erro na descodificação.");
       console.warn("[camera-test] read falhou:", e);
       setStatus("Erro na descodificação.");
     }
@@ -327,7 +376,7 @@
   async function executarTentativa() {
     if (!scanAtivo || testarStop) return;
     tentativa++;
-    setStatus(`Tentativa ${tentativa}...`);
+    setStatus(`Tentativa ${tentativa}: a procurar documento...`);
     mostrarProgresso(false);
     mostrarLaser(true);
 
@@ -340,7 +389,26 @@
       return;
     }
 
-    const { base, warpOk } = prepararBase(canvas);
+    const { base, warpOk, foundCandidate } = prepararBase(canvas);
+
+    // sem candidato (polígono) → continua a procurar na câmara
+    if (!foundCandidate) {
+      setStatus(`Tentativa ${tentativa}: sem candidato. A tentar de novo...`);
+      await atraso(300);
+      if (scanAtivo && !testarStop) {
+        if (tentativa < MAX_TENTATIVAS) executarTentativa();
+        else { setStatus("Documento não encontrado."); mostrarLaser(false); }
+      }
+      return;
+    }
+
+    // candidato encontrado → fecha a câmara e mostra a imagem do documento
+    fecharCamera();
+    mostrarLaser(false);
+    mostrarCaptura(base);
+    setStatus(`Tentativa ${tentativa}: candidato detetado. A testar rotações...`);
+    mostrarProgresso(false);
+
     const res = await testarRotacoes(base, warpOk, "camera");
     if (testarStop) return;
 
@@ -349,16 +417,13 @@
       return;
     }
 
-    console.log(`[camera-test] Tentativa ${tentativa}: sem ROI nas 4 rotações.`);
-    setStatus(`Tentativa ${tentativa}: sem zona detetada.`);
-    await atraso(400);
+    // candidato sem MRZ → volta à câmara e tenta outro
+    logPasso(`Candidato da tentativa ${tentativa} sem MRZ nas 4 rotações.`);
+    setStatus(`Tentativa ${tentativa}: candidato sem MRZ. A voltar à câmara...`);
+    await reabrirCamera();
     if (scanAtivo && !testarStop) {
-      if (tentativa < MAX_TENTATIVAS) {
-        executarTentativa();
-      } else {
-        setStatus("Documento não encontrado.");
-        mostrarLaser(false);
-      }
+      if (tentativa < MAX_TENTATIVAS) executarTentativa();
+      else { setStatus("Documento não encontrado."); mostrarLaser(false); }
     }
   }
 
@@ -375,21 +440,24 @@
       canvas.getContext("2d").drawImage(img, 0, 0);
       URL.revokeObjectURL(url);
 
+      limparPassos();
       testarStop = false;
       scanAtivo = false;
       $("scan-instructions").hidden = true;
       $("mrz-camera").hidden = false;
-      mostrarLaser(true);
+      mostrarLaser(false);
       setStatus("A processar imagem...");
 
       const { base, warpOk } = prepararBase(canvas);
+      mostrarCaptura(base);
+      setStatus("A testar rotações...");
       const res = await testarRotacoes(base, warpOk, "upload");
       if (testarStop) return;
 
       if (res.found) {
         await processarLeitura(res.canvas, res.deteccao, res.graus, res.warpOk);
       } else {
-        console.log("[camera-test] Upload: sem ROI nas 4 rotações.");
+        logPasso("Upload: sem MRZ nas 4 rotações.");
         setStatus("Sem zona detetada nas 4 rotações.");
         mostrarLaser(false);
       }
