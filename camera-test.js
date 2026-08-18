@@ -183,6 +183,7 @@
   window.trocarCamera = trocarCamera;
 
   function escolherFoto() { $("mrz-file-input").click(); }
+  window.escolherFoto = escolherFoto;
 
   async function iniciarScan() {
     $("scan-instructions").hidden = true;
@@ -251,6 +252,266 @@
     }
     return n ? energia / n : 0;
   }
+
+  /* ---- Deteção de cantos por IA local (ONNX, DocAligner lcnet050) ---- */
+  let sessionCantos = null;
+  let sessionCantosCarregando = null;
+  async function obterSessionCantos() {
+    if (sessionCantos) return sessionCantos;
+    if (sessionCantosCarregando) return sessionCantosCarregando;
+    sessionCantosCarregando = (async () => {
+      if (!window.ort) throw new Error("onnxruntime-web não carregado.");
+      ort.env.wasm.numThreads = 4;
+      const sess = await ort.InferenceSession.create("./mrz-v2/model_cantos.onnx", {
+        executionProviders: ["wasm"]
+      });
+      sessionCantos = sess;
+      return sess;
+    })();
+    try { await sessionCantosCarregando; }
+    finally { sessionCantosCarregando = null; }
+    return sessionCantos;
+  }
+
+  function prepararTensorEntrada(canvas) {
+    const c = document.createElement("canvas");
+    c.width = 256;
+    c.height = 256;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(canvas, 0, 0, 256, 256);
+    const data = ctx.getImageData(0, 0, 256, 256).data;
+    const tensor = new Float32Array(1 * 3 * 256 * 256);
+    const area = 256 * 256;
+    let i = 0;
+    for (let p = 0; p < data.length; p += 4) {
+      tensor[i] = data[p] / 255;
+      tensor[i + area] = data[p + 1] / 255;
+      tensor[i + 2 * area] = data[p + 2] / 255;
+      i++;
+    }
+    return tensor;
+  }
+
+  async function detectarCantosIA(canvas) {
+    try {
+      const session = await obterSessionCantos();
+      const tensor = prepararTensorEntrada(canvas);
+      const feeds = { img: new ort.Tensor("float32", tensor, [1, 3, 256, 256]) };
+      const outs = await session.run(feeds);
+      const hasObj = outs.has_obj ? Array.from(outs.has_obj.data)[0] : 0;
+      if (hasObj <= 0.5) return null;
+      const pts = Array.from(outs.points.data);
+      const W = canvas.width, H = canvas.height;
+      const cantos = [];
+      for (let k = 0; k < 4; k++) {
+        cantos.push({ x: pts[k * 2] * W, y: pts[k * 2 + 1] * H });
+      }
+      return ordenarCantos(cantos);
+    } catch (e) {
+      console.warn("[camera-test] detectarCantosIA falhou:", e);
+      return null;
+    }
+  }
+
+  /* ================= Fluxo alternativo: FastMRZ (mrz_seg.onnx) ================= */
+  let sessionFastMRZ = null;
+  let sessionFastMRZCarregando = null;
+  async function obterSessionFastMRZ() {
+    if (sessionFastMRZ) return sessionFastMRZ;
+    if (sessionFastMRZCarregando) return sessionFastMRZCarregando;
+    sessionFastMRZCarregando = (async () => {
+      if (!window.ort) throw new Error("onnxruntime-web não carregado.");
+      const sess = await ort.InferenceSession.create("./mrz-v2/fastmrz_mrz_seg.onnx", {
+        executionProviders: ["wasm"]
+      });
+      sessionFastMRZ = sess;
+      return sess;
+    })();
+    try { await sessionFastMRZCarregando; } finally { sessionFastMRZCarregando = null; }
+    return sessionFastMRZ;
+  }
+
+  // Entrada do fastmrz: 256x256, BGR, /255, NHWC (1,256,256,3)
+  function prepararTensorFastMRZ(canvas) {
+    const c = document.createElement("canvas");
+    c.width = 256; c.height = 256;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(canvas, 0, 0, 256, 256);
+    const data = ctx.getImageData(0, 0, 256, 256).data;
+    const tensor = new Float32Array(1 * 256 * 256 * 3);
+    let i = 0;
+    for (let p = 0; p < data.length; p += 4) {
+      tensor[i] = data[p + 2] / 255;     // B
+      tensor[i + 1] = data[p + 1] / 255; // G
+      tensor[i + 2] = data[p] / 255;     // R
+      i += 3;
+    }
+    return tensor;
+  }
+
+  // Saída NHWC: [1, H, W, C]; devolve máscara do canal 0
+  function extrairMascara(outs, session) {
+    const name = session.outputNames[0];
+    const tensor = outs[name];
+    const dims = tensor.dims || [];
+    const data = tensor.data;
+    const H = dims[1] || 256;
+    const W = dims[2] || 256;
+    const C = dims[3] || 1;
+    const mask = new Float32Array(H * W);
+    for (let h = 0; h < H; h++) {
+      for (let w = 0; w < W; w++) {
+        mask[h * W + w] = data[(h * W + w) * C];
+      }
+    }
+    return { mask, H, W };
+  }
+
+  function postProcessMascara(canvas, mask, H, W) {
+    const maskC = document.createElement("canvas");
+    maskC.width = W; maskC.height = H;
+    const mctx = maskC.getContext("2d");
+    const img = mctx.createImageData(W, H);
+    for (let i = 0; i < H * W; i++) {
+      const v = mask[i] > 0.25 ? 255 : 0;
+      img.data[i * 4] = v; img.data[i * 4 + 1] = v; img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255;
+    }
+    mctx.putImageData(img, 0, 0);
+
+    const bigC = document.createElement("canvas");
+    bigC.width = canvas.width; bigC.height = canvas.height;
+    bigC.getContext("2d").drawImage(maskC, 0, 0, bigC.width, bigC.height);
+
+    const mat = cv.imread(bigC);
+    const gray = new cv.Mat();
+    cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
+    const kernel = cv.Mat.ones(5, 5, cv.CV_8U);
+    const eroded = new cv.Mat();
+    cv.erode(gray, eroded, kernel);
+    const contours = new cv.MatVector();
+    const hierarchy = new cv.Mat();
+    cv.findContours(eroded, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE);
+    let best = -1, bestArea = -1;
+    for (let i = 0; i < contours.size(); i++) {
+      const a = cv.contourArea(contours.get(i));
+      if (a > bestArea) { bestArea = a; best = i; }
+    }
+    let roiC = null;
+    if (best >= 0) {
+      const rect = cv.boundingRect(contours.get(best));
+      const pad = 10;
+      const x0 = Math.max(0, rect.x - pad), y0 = Math.max(0, rect.y - pad);
+      const x1 = Math.min(canvas.width, rect.x + rect.width + pad);
+      const y1 = Math.min(canvas.height, rect.y + rect.height + pad);
+      const w = Math.max(1, x1 - x0), h = Math.max(1, y1 - y0);
+      roiC = document.createElement("canvas");
+      roiC.width = w; roiC.height = h;
+      roiC.getContext("2d").drawImage(canvas, x0, y0, w, h, 0, 0, w, h);
+      const roiMat = cv.imread(roiC);
+      const roiGray = new cv.Mat();
+      cv.cvtColor(roiMat, roiGray, cv.COLOR_RGBA2GRAY);
+      const otsu = new cv.Mat();
+      cv.threshold(roiGray, otsu, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+      cv.imshow(roiC, otsu);
+      roiMat.delete(); roiGray.delete(); otsu.delete();
+    }
+    mat.delete(); gray.delete(); kernel.delete(); eroded.delete(); contours.delete(); hierarchy.delete();
+    return roiC;
+  }
+
+  let tesseractWorker = null;
+  async function obterTesseractWorker() {
+    if (tesseractWorker) return tesseractWorker;
+    if (!window.Tesseract) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+        s.onload = resolve; s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    }
+    tesseractWorker = await window.Tesseract.createWorker("ocrb", 1, { langPath: "./tessdata", gzip: false });
+    await tesseractWorker.setParameters({ tessedit_pageseg_mode: "6", preserve_interword_spaces: "0" });
+    return tesseractWorker;
+  }
+
+  async function ocrRoi(roiCanvas) {
+    const worker = await obterTesseractWorker();
+    const blob = await canvasToBlob(roiCanvas);
+    const res = await worker.recognize(blob);
+    return res?.data?.text || "";
+  }
+
+  function limparLinhasMRZ(texto) {
+    const linhas = texto.replace(/ /g, "").split("\n").map(l => l.trim()).filter(Boolean);
+    const comp = [30, 36, 44].find(L => linhas.some(l => l.includes("<") && l.length === L));
+    if (!comp) return "";
+    return linhas.filter(l => l.includes("<") && l.length >= comp).join("\n");
+  }
+
+  async function detetarRoiFastMRZ(canvas) {
+    try {
+      const session = await obterSessionFastMRZ();
+      const tensor = prepararTensorFastMRZ(canvas);
+      const feeds = { [session.inputNames[0]]: new ort.Tensor("float32", tensor, [1, 256, 256, 3]) };
+      const outs = await session.run(feeds);
+      const { mask, H, W } = extrairMascara(outs, session);
+      return postProcessMascara(canvas, mask, H, W);
+    } catch (e) {
+      console.warn("[camera-test] FastMRZ inferência falhou:", e);
+      return null;
+    }
+  }
+
+  async function executarLoopFastMRZ() {
+    let tent = 0;
+    while (scanAtivo && !testarStop && tent < 20) {
+      tent++;
+      setStatus(`FastMRZ: a procurar MRZ (${tent})...`);
+      let canvas;
+      try { canvas = await capturarFrameMaisNitido(2); }
+      catch (e) { setStatus("Sem frame."); return; }
+      adicionarImagem(`FastMRZ frame ${tent}`, canvas);
+      const roi = await detetarRoiFastMRZ(canvas);
+      if (testarStop) return;
+      if (roi) {
+        adicionarImagem(`FastMRZ ROI ${tent}`, roi);
+        setStatus("FastMRZ: MRZ detetado, a ler...");
+        const texto = await ocrRoi(roi);
+        const mrz = limparLinhasMRZ(texto);
+        console.log(`[camera-test] FastMRZ ROI ${tent} OCR:`, texto, "->", mrz);
+        if (mrz) {
+          setStatus("MRZ obtido:\n" + mrz);
+          mostrarLaser(false);
+          mostrarGaleria();
+          return;
+        }
+      }
+      await atraso(300);
+    }
+    if (scanAtivo && !testarStop) {
+      setStatus("FastMRZ: MRZ não encontrado.");
+      mostrarLaser(false);
+      mostrarGaleria();
+    }
+  }
+
+  async function iniciarScanFastMRZ() {
+    $("scan-instructions").hidden = true;
+    $("scan-message").hidden = true;
+    $("mrz-camera").hidden = false;
+    mostrarLaser(true);
+    try { await abrirCamera(); }
+    catch (e) { setStatus("Não foi possível aceder à câmera."); return; }
+    testarStop = false;
+    scanAtivo = true;
+    setStatus("FastMRZ: a estabilizar câmera...");
+    await atraso(3000);
+    try { await obterSessionFastMRZ(); }
+    catch (e) { setStatus("Modelo FastMRZ não carregado."); return; }
+    executarLoopFastMRZ();
+  }
+  window.iniciarScanFastMRZ = iniciarScanFastMRZ;
 
   function canvasToBlob(canvas) {
     return new Promise(resolve => canvas.toBlob(resolve, "image/png"));
@@ -376,34 +637,6 @@
     ctx.rotate(graus * Math.PI / 180);
     ctx.drawImage(canvas, -w / 2, -h / 2);
     return out;
-  }
-
-  /* ---- Prepara a imagem base (warp ou original) ---- */
-  function prepararBase(canvas) {
-    let base = canvas;
-    let warpOk = false;
-    let aspect = 0;
-    let foundCandidate = false;
-    if (cvReady) {
-      setStatus("A detetar limites do documento...");
-      try {
-        const cantos = detectarQuadrilatero(canvas);
-        if (cantos) {
-          aspect = aspectoQuadrilatero(cantos);
-          setStatus("Documento encontrado. A endireitar (warp)...");
-          base = warpCanvas(canvas, cantos, aspect);
-          warpOk = true;
-          foundCandidate = true;
-          logPasso(`Quadrilátero detetado (aspect=${aspect.toFixed(2)}); aplicado warp.`);
-        } else {
-          logPasso("Sem quadrilátero confiante nesta frame.");
-        }
-      } catch (e) {
-        console.warn("[camera-test] Warp falhou; fallback para original:", e);
-        logPasso("Warp falhou; a usar imagem original.");
-      }
-    }
-    return { base, warpOk, aspect, foundCandidate };
   }
 
   /* ---- Testa as 4 rotações até encontrar ROI ---- */
@@ -552,11 +785,13 @@
 
     // 2) identifica quadrilátero (barato)
     let cantos = null;
-    if (cvReady) {
+    // IA local primeiro; fallback para Canny se não houver cantos/erro
+    cantos = await detectarCantosIA(canvas);
+    if (!cantos && cvReady) {
       try {
         cantos = detectarQuadrilatero(canvas);
       } catch (e) {
-        console.warn("[camera-test] Deteção de quadrilátero falhou:", e);
+        console.warn("[camera-test] Deteção de quadrilátero (Canny) falhou:", e);
       }
     }
 
@@ -619,44 +854,122 @@
     }
   }
 
-  /* ---- Upload de foto ---- */
-  $("mrz-file-input").addEventListener("change", async e => {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = async () => {
-      fecharCamera(); // fecha o stream da câmara antes de processar a foto
-      const canvas = document.createElement("canvas");
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      canvas.getContext("2d").drawImage(img, 0, 0);
-      URL.revokeObjectURL(url);
+  /* ---- Upload de imagens (simula os frames da preview da câmara) ---- */
+  function carregarImagemCanvas(file, timeoutMs = 10000) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      let feito = false;
+      const finalizar = (fn, arg) => {
+        if (feito) return;
+        feito = true;
+        clearTimeout(timer);
+        URL.revokeObjectURL(url);
+        fn(arg);
+      };
+      const timer = setTimeout(() => finalizar(reject, new Error("Timeout a carregar imagem: " + (file.name || ""))), timeoutMs);
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        canvas.getContext("2d").drawImage(img, 0, 0);
+        finalizar(resolve, canvas);
+      };
+      img.onerror = () => finalizar(reject, new Error("Falha ao carregar imagem: " + (file.name || "")));
+      img.src = url;
+    });
+  }
 
-      limparPassos();
-      testarStop = false;
-      scanAtivo = false;
-      $("scan-instructions").hidden = true;
-      $("mrz-camera").hidden = false;
-      mostrarLaser(false);
-      setStatus("A processar imagem...");
+  async function processarFramesUpload(frames) {
+    if (!frames.length) return;
+    fecharCamera(); // fecha o stream da câmara antes de processar
+    limparPassos();
+    testarStop = false;
+    scanAtivo = false;
+    $("scan-instructions").hidden = true;
+    $("mrz-camera").hidden = false;
+    mostrarLaser(false);
+    setStatus(`A processar ${frames.length} imagens...`);
+    console.log(`[camera-test] Upload: ${frames.length} frames a processar.`);
 
-      const { base, warpOk } = prepararBase(canvas);
-      mostrarCaptura(base);
-      setStatus("A testar rotações...");
-      const res = await testarRotacoes(base, warpOk, "upload");
+    // ordena por nitidez (desc) para simular "escolher o mais nítido"
+    const ordenados = frames.slice().sort((a, b) => calcularNitidez(b) - calcularNitidez(a));
+
+    for (let i = 0; i < ordenados.length; i++) {
       if (testarStop) return;
+      const canvas = ordenados[i];
+      adicionarImagem(`Frame ${i + 1}/${ordenados.length} (upload)`, canvas);
+      setStatus(`A testar frame ${i + 1}/${ordenados.length}...`);
+      console.log(`[camera-test] A processar frame ${i + 1}/${ordenados.length}`);
 
-      if (res.found) {
-        await processarLeitura(res.canvas, res.deteccao, res.graus, res.warpOk);
-      } else {
-        logPasso("Upload: sem MRZ nas 4 rotações.");
-        setStatus("Sem zona detetada nas 4 rotações.");
-        mostrarLaser(false);
+      let cantos = null;
+      // IA local primeiro; fallback para Canny se não houver cantos/erro
+      cantos = await detectarCantosIA(canvas);
+      if (!cantos && cvReady) {
+        try {
+          cantos = detectarQuadrilatero(canvas);
+        } catch (e) {
+          console.warn("[camera-test] Deteção de quadrilátero (Canny) falhou (upload):", e);
+        }
       }
-    };
-    img.onerror = () => URL.revokeObjectURL(url);
-    img.src = url;
+
+      if (cantos) {
+        try {
+          const aspect = aspectoQuadrilatero(cantos);
+          const base = warpCanvas(canvas, cantos, aspect);
+          adicionarImagem(`Warp frame ${i + 1}`, base);
+          logPasso(`Frame ${i + 1}: quadrilátero detetado; a testar rotações.`);
+          const res = await testarRotacoes(base, true, "upload");
+          if (testarStop) return;
+          if (res.found) {
+            await processarLeitura(res.canvas, res.deteccao, res.graus, res.warpOk);
+            return;
+          }
+          logPasso(`Frame ${i + 1}: candidato sem MRZ.`);
+        } catch (e) {
+          console.warn(`[camera-test] Erro ao processar warp/rotações do frame ${i + 1}:`, e);
+          logPasso(`Frame ${i + 1}: erro no processamento.`);
+        }
+      } else {
+        logPasso(`Frame ${i + 1}: sem quadrilátero.`);
+      }
+    }
+
+    // nenhum frame deu resultado → fallback na imagem completa do mais nítido
+    logPasso("Nenhum frame com quadrilátero/MRZ; a testar a imagem completa (fallback).");
+    try {
+      await processarImagemCompleta(ordenados[0]);
+    } catch (e) {
+      console.warn("[camera-test] Fallback falhou:", e);
+      setStatus("Sem resultado.");
+      mostrarGaleria();
+    }
+  }
+
+  $("mrz-file-input").addEventListener("change", async e => {
+    const files = e.target.files;
+    if (!files || !files.length) return;
+    console.log(`[camera-test] Ficheiros selecionados: ${files.length}`);
+    setStatus("A carregar imagens...");
+    try {
+      const frames = [];
+      const limite = Math.min(files.length, 10);
+      for (let i = 0; i < limite; i++) {
+        try {
+          frames.push(await carregarImagemCanvas(files[i]));
+        } catch (err) {
+          console.warn(`[camera-test] Ficheiro ${i + 1} ignorado:`, err.message);
+        }
+      }
+      if (!frames.length) {
+        setStatus("Nenhuma imagem válida.");
+        return;
+      }
+      await processarFramesUpload(frames);
+    } catch (err) {
+      console.warn("[camera-test] Upload falhou:", err);
+      setStatus("Falha ao carregar as imagens.");
+    }
   });
 })();
 

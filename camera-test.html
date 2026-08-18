@@ -5,10 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Teste Câmera — Warp + Rotação + MRZ</title>
   <link rel="stylesheet" href="style.css">
-  <!-- OpenCV.js apenas nesta página de teste; carregamento síncrono (sem async/onload) -->
-  <script src="opencv.js"></script>
-  <script src="mrz-form-stage3-reader.js"></script>
-  <script src="camera-test.js"></script>
 </head>
 <body>
   <div id="cabecalho-info">
@@ -33,6 +29,9 @@
       <button type="button" id="btn-scan-ok" class="icon-button scan-ok" onclick="iniciarScan()">
         <span>OK</span>
       </button>
+      <button type="button" id="btn-scan-fastmrz" class="icon-button scan-ok" onclick="iniciarScanFastMRZ()">
+        <span>Teste FastMRZ</span>
+      </button>
     </div>
   </div>
 
@@ -54,9 +53,9 @@
     </div>
     <div class="mrz-camera-actions scan-camera-actions">
       <button type="button" id="btn-trocar-camera" class="icon-button" onclick="trocarCamera()">Trocar camera</button>
-      <button type="button" id="btn-upload-foto" class="icon-button" onclick="escolherFoto()">Upload da foto</button>
+      <button type="button" id="btn-upload-foto" class="icon-button" onclick="escolherFoto()">Upload de imagens</button>
     </div>
-    <input type="file" id="mrz-file-input" accept="image/*" hidden>
+    <input type="file" id="mrz-file-input" accept="image/*" multiple hidden>
 
     <div id="img-gallery" class="img-gallery" hidden>
       <div class="img-gallery-header">
@@ -66,5 +65,11 @@
       <div id="img-gallery-grid" class="img-gallery-grid"></div>
     </div>
   </div>
+
+  <!-- Scripts no fim do body: o DOM já existe quando camera-test.js corre -->
+  <script src="opencv.js"></script>
+  <script src="mrz-form-stage3-reader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.3/dist/ort.min.js"></script>
+  <script src="camera-test.js"></script>
 </body>
 </html>
