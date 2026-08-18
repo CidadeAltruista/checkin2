@@ -38,6 +38,20 @@
   <!-- STEP 2: Camera fullscreen -->
   <div id="mrz-camera" class="mrz-camera scan-camera" hidden>
     <button type="button" class="mrz-close scan-exit" onclick="fecharScan()">Sair</button>
+    <div class="manual-controls">
+      <label>Método:
+        <select id="test-method">
+          <option value="canny">Canny</option>
+          <option value="ia">IA DocAligner</option>
+          <option value="fastmrz">FastMRZ</option>
+          <option value="frame">Frame inteiro</option>
+        </select>
+      </label>
+      <button type="button" onclick="abrirCameraTeste()">Abrir Câmera</button>
+      <button type="button" onclick="capturarFrameTeste()">Capturar Frame</button>
+      <button type="button" onclick="gerarRecorteTeste()">Gerar Recorte</button>
+      <button type="button" onclick="enviarFase3Teste()">Enviar Fase 3</button>
+    </div>
     <div class="mrz-video-wrap">
       <video id="mrz-video" playsinline autoplay muted></video>
       <img id="mrz-captured" class="scan-captured" alt="Zona MRZ capturada" hidden>

@@ -997,5 +997,96 @@
       setStatus("Falha ao carregar as imagens.");
     }
   });
+
+  /* ===== Controlo manual (passo a passo) ===== */
+  let frameTeste = null;
+  let recorteTeste = null;
+
+  async function abrirCameraTeste() {
+    $("scan-instructions").hidden = true;
+    $("mrz-camera").hidden = false;
+    try {
+      await reabrirCamera();
+      setStatus("Câmera aberta. Captura um frame.");
+    } catch (e) {
+      setStatus("Não foi possível abrir a câmera.");
+    }
+  }
+  window.abrirCameraTeste = abrirCameraTeste;
+
+  async function capturarFrameTeste() {
+    try {
+      frameTeste = await capturarFrameMaisNitido(1);
+      mostrarCaptura(frameTeste);
+      adicionarImagem("Frame capturado (manual)", frameTeste);
+      setStatus("Frame capturado. Gera um recorte.");
+    } catch (e) {
+      setStatus("Sem frame da câmara. Abre a câmera primeiro.");
+    }
+  }
+  window.capturarFrameTeste = capturarFrameTeste;
+
+  async function gerarRecorteTeste() {
+    if (!frameTeste) { setStatus("Captura um frame primeiro."); return; }
+    const metodo = $("test-method").value;
+    setStatus("A gerar recorte (método: " + metodo + ")...");
+    let recorte = null;
+    try {
+      if (metodo === "canny") {
+        const cantos = detectarQuadrilatero(frameTeste);
+        recorte = cantos ? warpCanvas(frameTeste, cantos, aspectoQuadrilatero(cantos)) : frameTeste;
+      } else if (metodo === "ia") {
+        const cantos = await detectarCantosIA(frameTeste);
+        recorte = cantos ? warpCanvas(frameTeste, cantos, aspectoQuadrilatero(cantos)) : frameTeste;
+      } else if (metodo === "fastmrz") {
+        recorte = await detetarRoiFastMRZ(frameTeste);
+        recorte = recorte || frameTeste;
+      } else {
+        recorte = frameTeste;
+      }
+    } catch (e) {
+      console.warn("[camera-test] gerarRecorteTeste falhou:", e);
+      setStatus("Erro ao gerar recorte.");
+      return;
+    }
+    recorteTeste = recorte;
+    mostrarCaptura(recorteTeste);
+    adicionarImagem("Recorte (" + metodo + ")", recorteTeste);
+    setStatus("Recorte gerado. Podes enviar para a Fase 3.");
+  }
+  window.gerarRecorteTeste = gerarRecorteTeste;
+
+  async function enviarFase3Teste() {
+    if (!recorteTeste) { setStatus("Gera um recorte primeiro."); return; }
+    if (!confirm("Enviar este recorte para o MrzStage3Reader?")) return;
+    setStatus("A enviar para a Fase 3...");
+    mostrarProgresso(true);
+    setProgress(0);
+    const blob = await canvasToBlob(recorteTeste);
+    blob.name = "recorte-manual.png";
+    try {
+      const resultado = await window.MrzStage3Reader.read(blob, {
+        lang: "ocrb", langPath: "./tessdata",
+        roiLang: "ocrb", roiLangPath: "./tessdata",
+        roiTimeoutMs: 8000, timeoutMs: 25000,
+        onStatus: msg => { if (msg) logPasso(`[leitura] ${msg}`); },
+        onProgress: p => setProgress((Number(p) || 0) <= 1 ? (Number(p) || 0) * 100 : Number(p) || 0)
+      });
+      const ok = Boolean(resultado?.ok);
+      console.log("[camera-test] Fase 3 manual:", resultado);
+      mostrarProgresso(false);
+      if (ok) {
+        setStatus("MRZ (Fase 3):\n" + (resultado.text || "") + "\n\nCampos:\n" + formatarCampos(resultado.formData || resultado.dados));
+      } else {
+        setStatus("Fase 3 não conseguiu ler este recorte.");
+      }
+      mostrarGaleria();
+    } catch (e) {
+      console.warn("[camera-test] Fase 3 manual falhou:", e);
+      mostrarProgresso(false);
+      setStatus("Erro na Fase 3.");
+    }
+  }
+  window.enviarFase3Teste = enviarFase3Teste;
 })();
 
