@@ -183,6 +183,41 @@
     return canvas;
   }
 
+  /* Captura N frames e escolhe o mais nítido (gradiente horizontal no canal verde) */
+  async function capturarFrameMaisNitido(total = 3) {
+    let melhor = null;
+    let melhorScore = -1;
+    for (let i = 0; i < total; i++) {
+      const frame = capturarFrameVideo();
+      const score = calcularNitidez(frame);
+      if (score > melhorScore) {
+        melhorScore = score;
+        melhor = frame;
+      }
+      await atraso(60);
+    }
+    if (!melhor) throw new Error("Frame de vídeo vazio (dimensões 0)");
+    return melhor;
+  }
+
+  function calcularNitidez(canvas) {
+    const ctx = canvas.getContext("2d");
+    const { width, height } = canvas;
+    const data = ctx.getImageData(0, 0, width, height).data;
+    let energia = 0;
+    let n = 0;
+    for (let y = 0; y < height; y += 2) {
+      const linha = y * width;
+      for (let x = 0; x < width - 1; x += 2) {
+        const i = (linha + x) * 4;
+        const d = data[i + 1] - data[i + 5]; // gradiente horizontal no canal verde
+        energia += d * d;
+        n++;
+      }
+    }
+    return n ? energia / n : 0;
+  }
+
   function canvasToBlob(canvas) {
     return new Promise(resolve => canvas.toBlob(resolve, "image/png"));
   }
@@ -404,6 +439,25 @@
     mostrarProgresso(false);
   }
 
+  /* Fallback: ao fim de 5 tentativas sem quadrilátero, usa a imagem completa (sem warp) */
+  async function processarImagemCompleta(canvas) {
+    if (testarStop) return;
+    fecharCamera();
+    mostrarLaser(false);
+    mostrarCaptura(canvas);
+    setStatus("Sem quadrilátero; a testar a imagem completa...");
+    logPasso("Sem quadrilátero após 5 tentativas; a testar a imagem completa (sem warp).");
+    mostrarProgresso(false);
+    const res = await testarRotacoes(canvas, false, "fallback-completa");
+    if (testarStop) return;
+    if (res.found) {
+      await processarLeitura(res.canvas, res.deteccao, res.graus, res.warpOk);
+    } else {
+      setStatus("Documento não encontrado.");
+      mostrarLaser(false);
+    }
+  }
+
   /* ---- Loop de tentativas (câmara) ---- */
   async function executarTentativa() {
     if (!scanAtivo || testarStop) return;
@@ -426,27 +480,58 @@
     mostrarProgresso(false);
     mostrarLaser(true);
 
+    // 1) captura 3 frames e escolhe o mais nítido
     let canvas;
     try {
-      canvas = capturarFrameVideo();
+      canvas = await capturarFrameMaisNitido(3);
     } catch (e) {
       console.warn("[camera-test] Sem frame da câmara:", e);
       setStatus("Sem frame da câmara.");
       return;
     }
 
-    const { base, warpOk, foundCandidate } = prepararBase(canvas);
-
-    // há quadrilátero → fecha a câmara e mostra a imagem endireitada
-    if (foundCandidate) {
-      fecharCamera();
-      mostrarLaser(false);
-      mostrarCaptura(base);
-      setStatus(`Tentativa ${tentativa}: candidato detetado. A testar rotações...`);
-    } else {
-      // sem quadrilátero → fallback: testa a imagem original, mantém a câmara aberta
-      setStatus(`Tentativa ${tentativa}: sem quadrilátero (fallback). A testar rotações...`);
+    // 2) identifica quadrilátero (barato)
+    let cantos = null;
+    if (cvReady) {
+      try {
+        cantos = detectarQuadrilatero(canvas);
+      } catch (e) {
+        console.warn("[camera-test] Deteção de quadrilátero falhou:", e);
+      }
     }
+
+    let base = canvas;
+    let warpOk = false;
+    let foundCandidate = false;
+    if (cantos) {
+      const aspect = aspectoQuadrilatero(cantos);
+      setStatus("Documento encontrado. A endireitar (warp)...");
+      base = warpCanvas(canvas, cantos, aspect);
+      warpOk = true;
+      foundCandidate = true;
+      logPasso(`Quadrilátero detetado (aspect=${aspect.toFixed(2)}); aplicado warp.`);
+    }
+
+    // 3) sem quadrilátero → repete a captura; ao fim de 5, usa a imagem completa
+    if (!foundCandidate) {
+      logPasso("Sem quadrilátero nesta frame.");
+      setStatus(`Tentativa ${tentativa}: sem quadrilátero. A tentar de novo...`);
+      await atraso(300);
+      if (scanAtivo && !testarStop) {
+        if (tentativa < MAX_TENTATIVAS) {
+          executarTentativa();
+        } else {
+          await processarImagemCompleta(canvas);
+        }
+      }
+      return;
+    }
+
+    // 4) quadrilátero → fecha a câmara e mostra a imagem endireitada
+    fecharCamera();
+    mostrarLaser(false);
+    mostrarCaptura(base);
+    setStatus(`Tentativa ${tentativa}: candidato detetado. A testar rotações...`);
     mostrarProgresso(false);
 
     const res = await testarRotacoes(base, warpOk, "camera");
@@ -457,16 +542,10 @@
       return;
     }
 
-    logPasso(`Tentativa ${tentativa}: sem MRZ nas 4 rotações.`);
+    logPasso(`Tentativa ${tentativa}: candidato sem MRZ nas 4 rotações.`);
     setStatus(`Tentativa ${tentativa}: sem resultado. A voltar à câmara...`);
-
-    // se a câmara tinha sido fechada (candidato), reabre
-    if (foundCandidate) {
-      await reabrirCamera();
-      await atraso(1000); // estabilização curta após reabrir
-    } else {
-      await atraso(400);
-    }
+    await reabrirCamera();
+    await atraso(1000); // estabilização curta após reabrir
 
     if (scanAtivo && !testarStop) {
       if (tentativa < MAX_TENTATIVAS) {
