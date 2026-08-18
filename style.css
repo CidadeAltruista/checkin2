@@ -1026,3 +1026,17 @@ select {
   }
 }
 
+
+/* Texto de instrucoes mais pequeno e imagem mais proxima no movel */
+@media (max-width: 720px) {
+  .scan-instr-list {
+    font-size: 15px;
+  }
+  .scan-instr-list li:last-child {
+    margin-bottom: 0;
+  }
+  .scan-guide {
+    gap: 10px;
+  }
+}
+
