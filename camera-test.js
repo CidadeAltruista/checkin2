@@ -6,12 +6,14 @@
   "use strict";
 
   let cvReady = false;
+  let esperaOpenCvMs = 0;
   let stream = null;
   let scanAtivo = false;
   let tentativa = 0;
   let testarStop = false;
   let passos = [];
   const MAX_TENTATIVAS = 5;
+  const ESPERA_OPENCV_LIMITE_MS = 8000;
   const ANGULOS = [0, 90, 180, 270];
 
   const $ = id => document.getElementById(id);
@@ -22,16 +24,26 @@
   const progressBox = () => document.querySelector(".scan-progress");
   const laserEl = () => document.querySelector(".mrz-video-wrap .scan-laser");
 
-  /* ---- OpenCV readiness ---- */
-  function onOpenCvReady() {
-    if (cv && cv.Mat) {
-      cvReady = true;
-      console.log("[camera-test] OpenCV.js pronto.");
-    } else {
-      setTimeout(onOpenCvReady, 100);
+  /* ---- OpenCV readiness (por polling, sem callback externo) ---- */
+  function aguardarOpenCv(tentativasMax = 50, intervaloMs = 200) {
+    let tentativas = 0;
+    function tick() {
+      if (window.cv && window.cv.Mat) {
+        cvReady = true;
+        console.log("[camera-test] OpenCV.js pronto.");
+        return;
+      }
+      tentativas++;
+      if (tentativas < tentativasMax) {
+        setTimeout(tick, intervaloMs);
+      } else {
+        console.warn("[camera-test] OpenCV.js não carregou a tempo; a seguir sem warp.");
+        cvReady = false;
+      }
     }
+    tick();
   }
-  window.onOpenCvReady = onOpenCvReady;
+  aguardarOpenCv();
 
   /* ---- UI helpers ---- */
   function setStatus(msg) {
@@ -113,10 +125,26 @@
     const atual = stream?.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId;
     const idx = cams.findIndex(c => c.deviceId === atual);
     const next = cams[(idx + 1) % cams.length];
-    stream?.getTracks().forEach(t => t.stop());
-    stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: next.deviceId } }, audio: false });
-    videoEl().srcObject = stream;
-    await videoEl().play().catch(() => {});
+    try {
+      stream?.getTracks().forEach(t => t.stop());
+      stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: next.deviceId } }, audio: false });
+      videoEl().srcObject = stream;
+      await videoEl().play().catch(() => {});
+    } catch (e) {
+      console.warn("[camera-test] Não foi possível trocar de câmera:", e);
+      setStatus("Não foi possível trocar de câmera.");
+      if (atual) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: atual } }, audio: false });
+          videoEl().srcObject = stream;
+          await videoEl().play().catch(() => {});
+        } catch (e2) {
+          console.warn("[camera-test] Não foi possível reabrir a câmera anterior:", e2);
+          stream = null;
+          videoEl().srcObject = null;
+        }
+      }
+    }
   }
   window.trocarCamera = trocarCamera;
 
@@ -145,6 +173,9 @@
   /* ---- captura de frame ---- */
   function capturarFrameVideo() {
     const v = videoEl();
+    if (!v || !(v.videoWidth > 0 && v.videoHeight > 0)) {
+      throw new Error("Frame de vídeo vazio (dimensões 0)");
+    }
     const canvas = document.createElement("canvas");
     canvas.width = v.videoWidth;
     canvas.height = v.videoHeight;
@@ -158,7 +189,17 @@
 
   /* ---- OpenCV: quadrilátero + warp ---- */
   function detectarQuadrilatero(canvas) {
-    const src = cv.imread(canvas);
+    const workingWidth = 900;
+    const scale = canvas.width > workingWidth ? workingWidth / canvas.width : 1;
+    let workCanvas = canvas;
+    if (scale < 1) {
+      workCanvas = document.createElement("canvas");
+      workCanvas.width = Math.round(canvas.width * scale);
+      workCanvas.height = Math.round(canvas.height * scale);
+      workCanvas.getContext("2d").drawImage(canvas, 0, 0, workCanvas.width, workCanvas.height);
+    }
+
+    const src = cv.imread(workCanvas);
     const gray = new cv.Mat();
     const blurred = new cv.Mat();
     const edges = new cv.Mat();
@@ -171,7 +212,7 @@
     cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
     console.log(`[camera-test] Contornos detetados: ${contours.size()}`);
 
-    const areaTotal = canvas.width * canvas.height;
+    const areaTotal = workCanvas.width * workCanvas.height;
     let melhor = null;
     let melhorArea = -1;
 
@@ -180,13 +221,18 @@
       const area = cv.contourArea(cnt);
       if (area < areaTotal * 0.30) { cnt.delete(); continue; }
       const peri = cv.arcLength(cnt, true);
-      const approx = new cv.Mat();
+      let approx = new cv.Mat();
       cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
+      if (approx.rows !== 4) {
+        approx.delete();
+        approx = new cv.Mat();
+        cv.approxPolyDP(cnt, approx, 0.04 * peri, true); // epsilon maior, mais tolerante
+      }
       if (approx.rows === 4 && area > melhorArea) {
         melhorArea = area;
         const pts = [];
         for (let p = 0; p < 4; p++) {
-          pts.push({ x: approx.data32S[p * 2], y: approx.data32S[p * 2 + 1] });
+          pts.push({ x: approx.data32S[p * 2] / scale, y: approx.data32S[p * 2 + 1] / scale });
         }
         melhor = ordenarCantos(pts);
       }
@@ -200,11 +246,13 @@
   }
 
   function ordenarCantos(pts) {
-    const sorted = pts.slice();
-    sorted.sort((a, b) => (a.y - b.y) || (a.x - b.x));
-    const top = sorted.slice(0, 2).sort((a, b) => a.x - b.x);
-    const bottom = sorted.slice(2).sort((a, b) => a.x - b.x);
-    return [top[0], top[1], bottom[1], bottom[0]]; // TL, TR, BR, BL
+    const soma = p => p.x + p.y;
+    const dif = p => p.x - p.y;
+    const tl = pts.reduce((a, b) => soma(a) < soma(b) ? a : b);
+    const br = pts.reduce((a, b) => soma(a) > soma(b) ? a : b);
+    const tr = pts.reduce((a, b) => dif(a) > dif(b) ? a : b);
+    const bl = pts.reduce((a, b) => dif(a) < dif(b) ? a : b);
+    return [tl, tr, br, bl]; // TL, TR, BR, BL
   }
 
   /* Proporção do documento a partir do quadrilátero detetado (evita distorção retrato/paisagem) */
@@ -379,16 +427,19 @@
   async function executarTentativa() {
     if (!scanAtivo || testarStop) return;
 
-    // se o OpenCV ainda não está pronto, espera (não queima tentativas)
-    if (!cvReady) {
+    // se o OpenCV ainda não está pronto, espera com limite total (não queima tentativas)
+    if (!cvReady && esperaOpenCvMs < ESPERA_OPENCV_LIMITE_MS) {
       setStatus("A aguardar OpenCV...");
       await atraso(300);
-      if (scanAtivo && !testarStop) {
-        setTimeout(executarTentativa, 100);
-      }
+      esperaOpenCvMs += 300;
+      if (scanAtivo && !testarStop) setTimeout(executarTentativa, 0);
       return;
     }
+    if (!cvReady) {
+      console.warn("[camera-test] OpenCV não ficou pronto a tempo; a continuar sem warp.");
+    }
 
+    limparPassos();
     tentativa++;
     setStatus(`Tentativa ${tentativa}: a procurar documento...`);
     mostrarProgresso(false);
@@ -453,6 +504,7 @@
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = async () => {
+      fecharCamera(); // fecha o stream da câmara antes de processar a foto
       const canvas = document.createElement("canvas");
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
