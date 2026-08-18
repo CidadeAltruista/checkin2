@@ -11,7 +11,6 @@
   let tentativa = 0;
   let testarStop = false;
   const MAX_TENTATIVAS = 5;
-  const ASPECT_RATIO = 85.6 / 54; // ID-1 (~1.586); usar 1.414 para A4/passaporte
   const ANGULOS = [0, 90, 180, 270];
 
   const $ = id => document.getElementById(id);
@@ -178,6 +177,15 @@
     return [top[0], top[1], bottom[1], bottom[0]]; // TL, TR, BR, BL
   }
 
+  /* Proporção do documento a partir do quadrilátero detetado (evita distorção retrato/paisagem) */
+  function aspectoQuadrilatero(cantos) {
+    const d = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+    const w = Math.max(d(cantos[0], cantos[1]), d(cantos[2], cantos[3])); // topo / base
+    const h = Math.max(d(cantos[0], cantos[3]), d(cantos[1], cantos[2])); // esq / dir
+    const ratio = w / Math.max(1, h);
+    return Math.min(3.0, Math.max(0.5, ratio)); // limita a valores plausíveis
+  }
+
   function warpCanvas(canvas, cantos, aspect) {
     const w = Math.round(Math.min(1600, canvas.width));
     const h = Math.round(w / aspect);
@@ -228,13 +236,15 @@
   function prepararBase(canvas) {
     let base = canvas;
     let warpOk = false;
+    let aspect = 0;
     if (cvReady) {
       try {
         const cantos = detectarQuadrilatero(canvas);
         if (cantos) {
-          base = warpCanvas(canvas, cantos, ASPECT_RATIO);
+          aspect = aspectoQuadrilatero(cantos);
+          base = warpCanvas(canvas, cantos, aspect);
           warpOk = true;
-          console.log("[camera-test] Quadrilátero detetado; aplicado warp.");
+          console.log(`[camera-test] Quadrilátero detetado (aspect=${aspect.toFixed(2)}); aplicado warp.`);
         } else {
           console.log("[camera-test] Sem quadrilátero confiante; usa imagem original (fallback).");
         }
@@ -242,13 +252,15 @@
         console.warn("[camera-test] Warp falhou; fallback para original:", e);
       }
     }
-    return { base, warpOk };
+    return { base, warpOk, aspect };
   }
 
   /* ---- Testa as 4 rotações até encontrar ROI ---- */
   async function testarRotacoes(base, warpOk, origem) {
+    let testadas = 0;
     for (const graus of ANGULOS) {
       if (testarStop) return { found: false };
+      testadas++;
       const rot = rotacionarCanvas(base, graus);
       const blob = await canvasToBlob(rot);
       blob.name = `${origem}-rota-${graus}.png`;
@@ -265,10 +277,11 @@
         deteccao = { found: false };
       }
       if (deteccao && deteccao.found && deteccao.roi) {
-        console.log(`[camera-test] >>> ROI encontrada na rotação ${graus}° (warp=${warpOk})`);
-        return { found: true, graus, canvas: rot, deteccao, warpOk };
+        console.log(`[camera-test] >>> ROI encontrada na rotação ${graus}° (warp=${warpOk}, testadas ${testadas}/4)`);
+        return { found: true, graus, canvas: rot, deteccao, warpOk, testadas };
       }
     }
+    console.log(`[camera-test] ${origem}: sem ROI após ${testadas} rotações.`);
     return { found: false };
   }
 
