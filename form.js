@@ -836,12 +836,12 @@ function mostrarVideoPreviewDocumento() {
 }
 
 function mostrarLaserScan() {
-  const el = document.querySelector("#mrz-video-wrap .scan-laser");
+  const el = document.querySelector(".mrz-video-wrap .scan-laser");
   if (el) el.hidden = false;
 }
 
 function esconderLaserScan() {
-  const el = document.querySelector("#mrz-video-wrap .scan-laser");
+  const el = document.querySelector(".mrz-video-wrap .scan-laser");
   if (el) el.hidden = true;
 }
 

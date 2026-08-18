@@ -989,6 +989,12 @@ select {
   background: #FFFFFF;
 }
 
+/* Garante que o video e o laser ficam ocultos quando o atributo hidden esta ativo */
+.mrz-video-wrap video[hidden],
+.mrz-video-wrap .scan-laser[hidden] {
+  display: none;
+}
+
 /* Linha "laser scan" no preview (mostrada enquanto nao ha ROI) */
 .mrz-video-wrap .scan-laser {
   position: absolute;
