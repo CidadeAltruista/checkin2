@@ -2445,7 +2445,7 @@ function pixelRoiLabel(roi, size) {
 async function detectTwoPhaseOcrbRoi(img) {
   const candidates = generateMorphologyLineCandidates(img)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 10)
+    .slice(0, 8)
     .sort((a, b) => a.roi.y - b.roi.y);
 
   if (!candidates.length) {
@@ -2551,7 +2551,7 @@ function forceFullImageWidthRoi(roi, img) {
 }
 
 function generateMorphologyLineCandidates(img) {
-  const width = 900;
+  const width = 600;
   const height = Math.max(1, Math.round(img.naturalHeight * width / img.naturalWidth));
   const variants = [
     { grayCloseX: 7, grayCloseY: 2, binaryCloseX: 18, binaryCloseY: 2, minWidth: 0.46 },
@@ -2568,9 +2568,10 @@ function generateMorphologyLineCandidates(img) {
   const pixels = ctx.getImageData(0, 0, width, height).data;
   const gray = grayFromPixels(pixels, width, height);
   const candidates = [];
+  // Reutiliza a imagem em cinza e o blur (raio 1, identico nas 3 variantes)
+  const blurred = boxBlurGray(gray, width, height, 1);
 
   for (const variant of variants) {
-    const blurred = boxBlurGray(gray, width, height, 1);
     const closed = grayscaleClose(blurred, width, height, variant.grayCloseX, variant.grayCloseY);
     const bottomHat = new Float32Array(gray.length);
     for (let i = 0; i < bottomHat.length; i++) bottomHat[i] = Math.max(0, closed[i] - blurred[i]);
