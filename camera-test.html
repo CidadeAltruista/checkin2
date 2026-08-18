@@ -41,6 +41,11 @@
   <!-- STEP 2: Camera fullscreen -->
   <div id="mrz-camera" class="mrz-camera scan-camera" hidden>
     <button type="button" class="mrz-close scan-exit" onclick="fecharScan()">Sair</button>
+    <div class="mrz-video-wrap">
+      <video id="mrz-video" playsinline autoplay muted></video>
+      <img id="mrz-captured" class="scan-captured" alt="Zona MRZ capturada" hidden>
+      <div class="scan-laser" aria-hidden="true"></div>
+    </div>
     <div class="manual-controls">
       <label>Método:
         <select id="test-method">
@@ -54,11 +59,6 @@
       <button type="button" onclick="capturarFrameTeste()">Capturar Frame</button>
       <button type="button" onclick="gerarRecorteTeste()">Gerar Recorte</button>
       <button type="button" onclick="enviarFase3Teste()">Enviar Fase 3</button>
-    </div>
-    <div class="mrz-video-wrap">
-      <video id="mrz-video" playsinline autoplay muted></video>
-      <img id="mrz-captured" class="scan-captured" alt="Zona MRZ capturada" hidden>
-      <div class="scan-laser" aria-hidden="true"></div>
     </div>
     <p id="mrz-status" class="mrz-status scan-status" hidden></p>
     <div class="mrz-progress scan-progress" aria-live="polite" hidden>
