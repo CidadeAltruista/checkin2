@@ -476,10 +476,35 @@
       if (testarStop) return;
       if (roi) {
         adicionarImagem(`FastMRZ ROI ${tent}`, roi);
-        setStatus("FastMRZ: MRZ detetado, a ler...");
+        setStatus("FastMRZ: MRZ detetado, a ler (Fase 3)...");
+        const blobRoi = await canvasToBlob(roi);
+        blobRoi.name = `fastmrz-roi-${tent}.png`;
+        let resultado = null;
+        try {
+          resultado = await window.MrzStage3Reader.read(blobRoi, {
+            lang: "ocrb", langPath: "./tessdata",
+            roiLang: "ocrb", roiLangPath: "./tessdata",
+            roiTimeoutMs: 8000, timeoutMs: 25000,
+            onStatus: msg => { if (msg) logPasso(`[leitura] ${msg}`); },
+            onProgress: p => setProgress((Number(p) || 0) <= 1 ? (Number(p) || 0) * 100 : Number(p) || 0)
+          });
+        } catch (e) {
+          console.warn("[camera-test] read(ROI fastmrz) falhou:", e);
+          resultado = null;
+        }
+        if (resultado && resultado.ok) {
+          const texto = resultado.text || "";
+          console.log("[camera-test] FastMRZ ROI -> Fase 3 ok:", resultado);
+          setStatus("MRZ obtido (Fase 3):\n" + texto + "\n\nCampos:\n" + formatarCampos(resultado.formData || resultado.dados));
+          mostrarLaser(false);
+          mostrarGaleria();
+          return;
+        }
+        // fallback: OCR direto do recorte
+        setStatus("FastMRZ: a ler ROI (OCR direto)...");
         const texto = await ocrRoi(roi);
         const mrz = limparLinhasMRZ(texto);
-        console.log(`[camera-test] FastMRZ ROI ${tent} OCR:`, texto, "->", mrz);
+        console.log(`[camera-test] FastMRZ ROI ${tent} OCR direto:`, texto, "->", mrz);
         if (mrz) {
           setStatus("MRZ obtido:\n" + mrz);
           mostrarLaser(false);
