@@ -476,6 +476,7 @@
       if (testarStop) return;
       if (roi) {
         adicionarImagem(`FastMRZ ROI ${tent}`, roi);
+        mostrarCaptura(roi); // mostra em ecrã a imagem recortada que vai para a Fase 3
         setStatus("FastMRZ: MRZ detetado, a ler (Fase 3)...");
         const blobRoi = await canvasToBlob(roi);
         blobRoi.name = `fastmrz-roi-${tent}.png`;
