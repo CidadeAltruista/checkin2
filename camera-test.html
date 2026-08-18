@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teste Câmera — Warp + Rotação + MRZ</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- OpenCV.js apenas nesta página de teste (carregamento assíncrono) -->
+  <script async src="opencv.js" onload="onOpenCvReady();"></script>
+  <script src="mrz-form-stage3-reader.js"></script>
+  <script src="camera-test.js"></script>
+</head>
+<body>
+  <div id="cabecalho-info">
+    <h2>Teste de Câmara</h2>
+    <p>Warp do documento + 4 rotações (0/90/180/270) + leitura MRZ. Ver o console para a rotação vencedora.</p>
+  </div>
+
+  <!-- STEP 1: Instrucoes -->
+  <div id="scan-instructions" class="scan-instructions">
+    <div class="mrz-header">
+      <div><h3>Scan Documento</h3></div>
+      <button type="button" class="mrz-close" onclick="fecharScan()">Sair</button>
+    </div>
+    <div class="scan-guide">
+      <ol class="scan-instr-list">
+        <li>Aponte a câmera para o documento</li>
+        <li>A zona MRZ (código de texto, conforme a imagem) deve estar bem visível</li>
+        <li>Troque de câmera se necessário</li>
+      </ol>
+      <div class="mrz-instructions"><img src="mrz-guide.png" alt="Exemplo da zona MRZ no documento"></div>
+      <p id="scan-message" class="mrz-status is-error scan-message" hidden></p>
+      <button type="button" id="btn-scan-ok" class="icon-button scan-ok" onclick="iniciarScan()">
+        <span>OK</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- STEP 2: Camera fullscreen -->
+  <div id="mrz-camera" class="mrz-camera scan-camera" hidden>
+    <button type="button" class="mrz-close scan-exit" onclick="fecharScan()">Sair</button>
+    <div class="mrz-video-wrap">
+      <video id="mrz-video" playsinline autoplay muted></video>
+      <img id="mrz-captured" class="scan-captured" alt="Zona MRZ capturada" hidden>
+      <div class="scan-laser" aria-hidden="true"></div>
+    </div>
+    <p id="mrz-status" class="mrz-status scan-status" hidden></p>
+    <div class="mrz-progress scan-progress" aria-live="polite" hidden>
+      <div class="mrz-progress-top">
+        <span id="mrz-progress-label">Progresso</span>
+        <span id="mrz-progress-percent">0%</span>
+      </div>
+      <div class="mrz-progress-track"><div id="mrz-progress-bar" class="mrz-progress-bar"></div></div>
+    </div>
+    <div class="mrz-camera-actions scan-camera-actions">
+      <button type="button" id="btn-trocar-camera" class="icon-button" onclick="trocarCamera()">Trocar camera</button>
+      <button type="button" id="btn-upload-foto" class="icon-button" onclick="escolherFoto()">Upload da foto</button>
+    </div>
+    <input type="file" id="mrz-file-input" accept="image/*" hidden>
+  </div>
+</body>
+</html>
