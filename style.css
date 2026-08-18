@@ -1071,8 +1071,7 @@ select {
 .img-gallery img {
   display: block;
   width: 100%;
-  height: auto;
-  max-height: 260px;
+  height: 260px;
   object-fit: contain;
   background: #000;
 }
