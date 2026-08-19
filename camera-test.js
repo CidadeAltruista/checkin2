@@ -263,7 +263,7 @@
       if (!window.ort) throw new Error("onnxruntime-web não carregado.");
       ort.env.wasm.numThreads = 4;
       const sess = await ort.InferenceSession.create("./mrz-v2/model_cantos.onnx", {
-        executionProviders: ["wasm"]
+        executionProviders: ["webgpu", "wasm"] // WebGPU se disponível; senão WASM
       });
       sessionCantos = sess;
       return sess;
@@ -273,11 +273,14 @@
     return sessionCantos;
   }
 
+  let canvasEntrada256 = null;
   function prepararTensorEntrada(canvas) {
-    const c = document.createElement("canvas");
-    c.width = 256;
-    c.height = 256;
-    const ctx = c.getContext("2d", { willReadFrequently: true });
+    if (!canvasEntrada256) {
+      canvasEntrada256 = document.createElement("canvas");
+      canvasEntrada256.width = 256;
+      canvasEntrada256.height = 256;
+    }
+    const ctx = canvasEntrada256.getContext("2d", { willReadFrequently: true });
     ctx.drawImage(canvas, 0, 0, 256, 256);
     const data = ctx.getImageData(0, 0, 256, 256).data;
     const tensor = new Float32Array(1 * 3 * 256 * 256);
@@ -1096,5 +1099,10 @@
     }
   }
   window.enviarFase3Teste = enviarFase3Teste;
+
+  // Pré-carrega o modelo IA (DocAligner) para a 1ª deteção ser rápida
+  if (window.ort) {
+    obterSessionCantos().catch(e => console.warn("[camera-test] Pré-carga do modelo IA falhou:", e));
+  }
 })();
 
