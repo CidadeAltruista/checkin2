@@ -811,11 +811,15 @@
 
     // 2) identifica quadrilátero (barato)
     let cantos = null;
+    let origemCantos = "nenhum";
     // IA local primeiro; fallback para Canny se não houver cantos/erro
     cantos = await detectarCantosIA(canvas);
-    if (!cantos && cvReady) {
+    if (cantos) {
+      origemCantos = "IA";
+    } else if (cvReady) {
       try {
         cantos = detectarQuadrilatero(canvas);
+        if (cantos) origemCantos = "Canny";
       } catch (e) {
         console.warn("[camera-test] Deteção de quadrilátero (Canny) falhou:", e);
       }
@@ -828,10 +832,10 @@
       const aspect = aspectoQuadrilatero(cantos);
       setStatus("Documento encontrado. A endireitar (warp)...");
       base = warpCanvas(canvas, cantos, aspect);
-      adicionarImagem("Warp (documento endireitado)", base);
+      adicionarImagem(`Warp (${origemCantos})`, base);
       warpOk = true;
       foundCandidate = true;
-      logPasso(`Quadrilátero detetado (aspect=${aspect.toFixed(2)}); aplicado warp.`);
+      logPasso(`Cantos por ${origemCantos} (aspect=${aspect.toFixed(2)}); aplicado warp.`);
     }
 
     // 3) sem quadrilátero → repete a captura; ao fim de 5, usa a imagem completa
@@ -929,11 +933,15 @@
       console.log(`[camera-test] A processar frame ${i + 1}/${ordenados.length}`);
 
       let cantos = null;
+      let origemCantos = "nenhum";
       // IA local primeiro; fallback para Canny se não houver cantos/erro
       cantos = await detectarCantosIA(canvas);
-      if (!cantos && cvReady) {
+      if (cantos) {
+        origemCantos = "IA";
+      } else if (cvReady) {
         try {
           cantos = detectarQuadrilatero(canvas);
+          if (cantos) origemCantos = "Canny";
         } catch (e) {
           console.warn("[camera-test] Deteção de quadrilátero (Canny) falhou (upload):", e);
         }
@@ -943,8 +951,8 @@
         try {
           const aspect = aspectoQuadrilatero(cantos);
           const base = warpCanvas(canvas, cantos, aspect);
-          adicionarImagem(`Warp frame ${i + 1}`, base);
-          logPasso(`Frame ${i + 1}: quadrilátero detetado; a testar rotações.`);
+          adicionarImagem(`Warp frame ${i + 1} (${origemCantos})`, base);
+          logPasso(`Frame ${i + 1}: cantos por ${origemCantos}; a testar rotações.`);
           const res = await testarRotacoes(base, true, "upload");
           if (testarStop) return;
           if (res.found) {
