@@ -497,6 +497,12 @@
           resultado = null;
         }
         if (resultado && resultado.ok) {
+          // imagens usadas pelo MrzStage3Reader nos pipelines (ROI + processadas)
+          if (resultado.debugImages) {
+            for (const d of resultado.debugImages) {
+              if (d && d.url) imagensTeste.push({ label: `[leitura] ${d.label || "corte"}`, url: d.url });
+            }
+          }
           const texto = resultado.text || "";
           console.log("[camera-test] FastMRZ ROI -> Fase 3 ok:", resultado);
           setStatus("MRZ obtido (Fase 3):\n" + texto + "\n\nCampos:\n" + formatarCampos(resultado.formData || resultado.dados));
@@ -1086,6 +1092,12 @@
       const ok = Boolean(resultado?.ok);
       console.log("[camera-test] Fase 3 manual:", resultado);
       mostrarProgresso(false);
+      // imagens usadas pelo MrzStage3Reader nos pipelines (ROI + processadas)
+      if (resultado && resultado.debugImages) {
+        for (const d of resultado.debugImages) {
+          if (d && d.url) imagensTeste.push({ label: `[leitura] ${d.label || "corte"}`, url: d.url });
+        }
+      }
       if (ok) {
         setStatus("MRZ (Fase 3):\n" + (resultado.text || "") + "\n\nCampos:\n" + formatarCampos(resultado.formData || resultado.dados));
       } else {
